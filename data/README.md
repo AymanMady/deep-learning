@@ -7,9 +7,9 @@ https://drive.google.com/drive/folders/18meW_x2uaSTFxhaZagfzLYe5p-RwvOHE
 
 Le dossier contient environ **890 instances** nommées `100_<k>`, chacune avec trois fichiers :
 
-- `graphD.txt` — un graphe orienté Erdős–Rényi G(100, p) (arêtes `a-b` = arc a → b)
-- `graphG.txt` — un second graphe orienté indépendant sur les mêmes 100 nœuds
-- `solution.txt` — résultat d'un solveur exact ILP2 pour le plus long chemin simple dans `graphD`
+- `graphD.txt` — un graphe **orienté** Erdős–Rényi G(100, p) (arêtes `a-b` = arc a → b) ; c'est un DAG (vérifié empiriquement, 39/39 instances)
+- `graphG.txt` — un second graphe sur les mêmes 100 nœuds, à interpréter comme **non-orienté** (les lignes `a-b` sont symétrisées ; `G` n'a pas d'orientation par définition du problème) ; connexe dans 38/39 instances (voir `REPORT.md` §2)
+- `solution.txt` — résultat d'un solveur exact ILP2 pour le plus long chemin **(D,G)-consistant** : un chemin dans `graphD` dont l'ensemble de sommets induit un sous-graphe connexe dans `graphG` (voir `REPORT.md` §1-2 pour les définitions formelles et la correction méthodologique)
 
 Voir `REPORT.md` (§2) pour le détail de l'analyse ayant permis d'identifier cette structure et de vérifier l'orientation des arêtes.
 

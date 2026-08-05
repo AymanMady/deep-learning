@@ -1,229 +1,306 @@
-# One-to-One Skew-GRAM : résolution du problème du plus long chemin par embeddings de nœuds appris via Skip-Gram
+# One-to-One Skew-GRAM : plus long chemin (D,G)-consistant par embeddings de nœuds
 
 **Rapport scientifique — Projet universitaire (Optimisation / Deep Learning / NLP appliqués aux graphes)**
-**Date :** 2026-07-19
+**Date :** 2026-08-05 — *version corrigée après retour du professeur*
 
 ---
 
 ## Résumé
 
-Ce projet part d'un objectif académique classique — construire un modèle de *Word Embedding* fondé sur le Skip-Gram, puis proposer une variante optimisée, le **One-to-One Skew-GRAM** — et l'applique à un jeu de données de graphes aléatoires orientés (Erdős–Rényi) accompagné d'une vérité terrain produite par un solveur exact d'optimisation combinatoire (ILP). Le Skip-Gram, transposé aux graphes suivant le paradigme DeepWalk/node2vec (nœud = mot, marche aléatoire = phrase), est utilisé comme heuristique pour résoudre le **problème NP-difficile du plus long chemin simple dans un graphe orienté**. Le One-to-One Skew-GRAM introduit trois optimisations — échantillonnage négatif structurel, sous-échantillonnage des nœuds de haut degré, et décodage par softmax masquée (« skewed ») garantissant une correspondance bijective (« one-to-one ») entre positions du chemin et nœuds — motivées par une inadéquation fondamentale entre le Skip-Gram classique (hérité du texte, où un mot peut se répéter) et la tâche de construction d'un chemin (où un nœud ne peut apparaître qu'une fois). Sur un échantillon de 39 instances, le Skew-GRAM égale ou dépasse le Skip-Gram classique dans **26 cas sur 39** (67 %) tout en restant en moyenne **43 fois plus rapide** que le solveur exact ILP2 (contre 14 fois pour le Skip-Gram classique), pour une longueur de chemin moyenne comparable (9.38 contre 9.41 nœuds pour le classique).
+Ce rapport documente une **version corrigée** du projet. Une version antérieure
+supposait à tort que le chemin cherché dans le graphe orienté `D` devait *aussi* être
+un chemin dans le graphe `G` (mêmes arêtes consécutives dans les deux). C'est faux :
+la seule contrainte que `G` impose est que l'**ensemble** de sommets du chemin induise
+un **sous-graphe connexe** dans `G` — ce sous-graphe peut être un arbre, pas
+nécessairement un chemin. Cette version corrige la définition du problème, retire
+toute comparaison avec un Skip-Gram classique (le projet repose désormais
+uniquement sur le **One-to-One Skew-GRAM**), et remplace le décodeur par un
+algorithme en deux étapes fidèle à la vraie contrainte. Les résultats, recalculés sur
+38 instances, sont honnêtes quant aux limites de cette première heuristique : elle
+reste, en l'état, nettement en dessous d'ILP2 en longueur de chemin (moyenne 3.42
+contre 9.97 nœuds) mais 66 à 170 fois plus rapide.
 
 ---
 
-## 1. Introduction
+## 1. Définitions formelles
 
-L'énoncé de ce projet demandait la construction d'un modèle de Word Embedding Skip-Gram sur un corpus textuel, puis la conception d'une variante optimisée nommée *One-to-One Skew-GRAM*. L'exploration du jeu de données fourni (dossier Google Drive `erdos_renyi`) a révélé qu'il ne s'agissait pas d'un corpus de texte, mais d'un ensemble d'environ 890 instances de **graphes aléatoires orientés** de type Erdős–Rényi à 100 nœuds, chacune accompagnée de la sortie d'un solveur exact (**ILP2**, *Integer Linear Programming*) pour le **problème du plus long chemin simple**. Cette découverte — détaillée en §2 — a conduit à repositionner le projet : au lieu d'un Skip-Gram textuel, nous transposons le principe du Skip-Gram aux graphes (paradigme DeepWalk, Perozzi et al., 2014 ; node2vec, Grover & Leskovec, 2016) et l'utilisons pour résoudre, de façon heuristique, un véritable problème d'optimisation combinatoire, en comparant nos résultats à la référence exacte fournie par le dataset. Ce repositionnement rend le titre du projet — *« Résolution d'un problème d'optimisation »* — littéral plutôt que métaphorique.
+1. **Graphe orienté `D`** : couple $(V, A)$, $A \subseteq V \times V$ un ensemble
+   d'arcs (couples ordonnés de sommets).
+2. **Graphe non-orienté `G`** : couple $(V, E)$, $E$ un ensemble de paires non
+   ordonnées de sommets.
+3. **Graphe non-orienté connexe `G`** : pour toute paire $u,v \in V$, il existe une
+   chaîne de $u$ à $v$ dans $G$.
+4. **Sous-graphe de `G` induit par $S \subseteq V$, connexe** : $G[S] = (S, E \cap
+   (S\times S))$ est connexe au sens du point 3. $G[S]$ peut être un arbre — un
+   sous-graphe connexe n'est pas nécessairement un chemin ni aussi dense que $G$.
+5. **Chemin dans un graphe orienté `D`** : séquence de sommets distincts
+   $p=(v_1,\dots,v_k)$ telle que $(v_i,v_{i+1}) \in A$ pour tout $i$.
+6. **Graphe orienté acyclique (DAG) `D`** : graphe orienté sans circuit dirigé.
+7. **Chemin $(D,G)$-consistant** : un chemin $p=(v_1,\dots,v_k)$ dans `D` (point 5)
+   dont l'ensemble de sommets $\{v_1,\dots,v_k\}$ induit dans `G` un sous-graphe
+   connexe (point 4).
 
-## 2. Données et repositionnement méthodologique
+**Problème résolu** : trouver le plus long chemin $(D,G)$-consistant. Le seul lien
+entre `D` et `G` est qu'ils partagent le même ensemble de sommets $V$ ; `D` est un
+DAG, `G` est non-orienté connexe.
 
-### 2.1 Structure du dataset
+## 2. Correction par rapport à la version précédente
 
-Chaque instance `100_<k>` du dossier fourni contient trois fichiers texte :
+**Erreur identifiée par le professeur.** La version précédente décodait un chemin en
+exigeant, à chaque étape, que l'arête choisie existe *aussi* dans `G` — c'est-à-dire
+qu'elle traitait implicitement le chemin cherché dans `D` comme devant être également
+un chemin dans `G`. Ce n'est pas la définition du problème : la seule exigence
+portant sur `G` est que l'**ensemble final** de sommets visités induise un sous-graphe
+connexe, qui peut être un arbre.
 
-| Fichier | Contenu |
-|---|---|
-| `graphD.txt` | Un graphe orienté G(100, p) : nœuds `1..100`, arêtes `a-b` signifiant l'arc **a → b**, probabilité `p` du modèle Erdős–Rényi |
-| `graphG.txt` | Un second graphe orienté indépendant sur les mêmes 100 nœuds, plus dense |
-| `solution.txt` | Résultat du solveur exact ILP2 pour le plus long chemin simple dans `graphD` : chemin trouvé, longueur, temps d'exécution, ou `"No solution found"` |
+**Vérification empirique de la nouvelle définition** (sur les 39 instances locales,
+via `networkx`) :
+- `D` est un DAG dans 39/39 instances testées (point 6 vérifié).
+- `G`, interprété comme **non-orienté** (les lignes `a-b` de `graphG.txt` sont
+  symétrisées, le sens d'écriture est ignoré puisque `G` n'a pas d'orientation par
+  définition), est connexe dans 38/39 instances (1 exception, `100_126`, exclue de
+  l'évaluation).
+- Les 37 chemins solutions du solveur exact **ILP2** sont, dans 37/37 cas, des
+  chemins valides dans `D` **et** des ensembles de sommets induisant un sous-graphe
+  connexe dans `G` — confirmant qu'ILP2 résout bien le problème (D,G)-consistant tel
+  que défini ci-dessus, et que nos vérifications de chargement des données sont
+  correctes.
+- **Constat déterminant pour l'algorithme** : la connexité du **préfixe visité pas à
+  pas** (dans l'ordre de parcours du chemin) n'est vérifiée que sur 1 des 37
+  solutions ILP2. Autrement dit, il est impossible d'imposer la connexité de façon
+  incrémentale pendant la construction du chemin — elle ne peut être vérifiée que sur
+  l'ensemble final (ou un sous-ensemble contigu). C'est précisément la conséquence de
+  l'avertissement du professeur : le sous-graphe induit peut être un arbre, formé par
+  des arêtes de `G` reliant des sommets du chemin dans un ordre complètement
+  indépendant de leur ordre de visite dans `D`.
 
-**Vérification de l'orientation des arêtes.** Une inspection directe du chemin solution d'une instance (`100_116`) a montré que chacun de ses arcs consécutifs correspond exactement à l'ordre littéral `a→b` des lignes du fichier, et jamais à l'ordre inverse. Une recherche aléatoire naïve sur la même instance, en interprétant le graphe comme non orienté, trouvait des chemins de longueur ≈ 90-100 nœuds — très supérieurs à la longueur ILP2 rapportée (13) — alors qu'en interprétation orientée, une marche gloutonne aléatoire plafonnait à des longueurs cohérentes avec la référence ILP2 (de l'ordre de 9 contre 13 pour ILP2). Cette vérification empirique confirme que le graphe est **orienté** et que le problème résolu par ILP2 est bien le plus long chemin simple **dirigé**.
+## 3. Repositionnement du projet (rappel)
 
-### 2.2 Limite de collecte des données
+Le dataset fourni (~890 instances Erdős–Rényi `100_<k>`, 39 collectées localement,
+voir `data/README.md`) contient pour chaque instance `graphD.txt` (orienté),
+`graphG.txt` (chargé ici comme **non-orienté**, correction par rapport à la lecture
+précédente qui le traitait comme un second graphe orienté) et `solution.txt` (sortie
+du solveur ILP2). Le Skip-Gram est transposé aux graphes suivant DeepWalk/node2vec
+(nœud = mot, marche aléatoire sur `D` = phrase) et sert d'heuristique pour le
+problème (D,G)-consistant défini ci-dessus.
 
-Le dossier Drive contient environ 890 instances. Leur téléchargement via l'API publique de Google Drive (`gdown`) est soumis à un **quota anti-abus par fichier/IP** : une première tentative de téléchargement parallèle a déclenché ce quota, bloquant temporairement l'accès à tout fichier du dossier — y compris des fichiers jamais sollicités auparavant. Le quota s'est levé puis redéclenché à plusieurs reprises lors de téléchargements séquentiels successifs (espacés de ~0.7-1 s par fichier). Au total, **39 instances** ont pu être collectées avec succès (11 tirées aléatoirement avec la graine `SEED=42`, 27 tirées lors de sessions de collecte ultérieures, plus une instance `100_1` ajoutée manuellement pour illustrer le cas `"No solution found"`). Voir `data/README.md` pour la procédure complète de reproduction et d'extension du jeu de données.
+## 4. Méthode
 
-Toutes les statistiques et tous les tableaux comparatifs de ce rapport sont calculés sur cet échantillon de 39 instances (sur ~890 disponibles, soit ≈ 4.4 %) ; ils doivent être lus comme représentatifs d'une tendance plutôt que comme une moyenne définitive sur l'ensemble du dataset. Le code (notebook `one_to_one_skewgram.ipynb`) s'adapte automatiquement au nombre d'instances présentes dans `data/raw/` : ré-exécuter le notebook après avoir étendu le jeu de données produira des statistiques encore plus robustes sans modification du code.
+### 4.1 One-to-One Skew-GRAM (seule méthode entraînée)
 
-### 2.3 Correspondance NLP → graphe
+Deux matrices d'embeddings $\mathbf V_{in}, \mathbf V_{out} \in \mathbb R^{N\times d}$
+($d=32$), perte de Negative Sampling optimisée par Adam :
 
-| Concept NLP demandé dans l'énoncé | Équivalent utilisé ici |
-|---|---|
-| Corpus / documents | Ensemble des instances de graphes disponibles |
-| Phrase | Marche aléatoire (*random walk*) sur le graphe |
-| Mot | Nœud (identifiant 1..100) |
-| Vocabulaire | Ensemble des nœuds du graphe (taille = N, local à chaque instance) |
-| Fréquence des mots | Fréquence de visite des nœuds dans les marches |
-| Nettoyage, caractères spéciaux, minuscules | Sans objet (données numériques) ; nœuds isolés exclus des marches |
-| Stopwords | Sous-échantillonnage des nœuds de haut degré (*hubs*) |
-| Lemmatisation / Stemming | Sans objet — pas de morphologie sur des identifiants de nœuds |
-| Tokenization | Génération des marches aléatoires |
-| Texte → indices | Triviale : les nœuds sont déjà des entiers |
-| Analogies de mots | Analogies structurelles : *u − voisin(u) + voisin(v) ≈ v* |
+$$\mathcal L(c,o,n_{1:K}) = -\log\sigma(\mathbf v_{in,c}^\top \mathbf v_{out,o}) -
+\sum_{k=1}^K \log\sigma(-\mathbf v_{in,c}^\top \mathbf v_{out,n_k})$$
 
-`nltk` et `spacy` ne sont pas utilisés (absence de texte à traiter) ; `gensim` est utilisé une seule fois (§5.4), comme base de comparaison, conformément à l'énoncé qui l'autorise « uniquement pour comparaison éventuelle ».
+- **Négatifs structurels** : tirés parmi les non-successeurs de $c$ dans `D`
+  ($P_{struct}(n\mid c) \propto \mathbb 1[(c,n)\notin A]$), au lieu d'une distribution
+  unigramme agnostique de la topologie.
+- **Sous-échantillonnage des hubs** : formule word2vec appliquée à la fréquence de
+  visite des nœuds dans les marches sur `D`, pour rééquilibrer nœuds périphériques et
+  nœuds très connectés.
 
-## 3. Méthode
+Aucun Skip-Gram classique n'est entraîné dans cette version — la consigne du projet
+est de reposer uniquement sur le One-to-One Skew-GRAM.
 
-### 3.1 Skip-Gram classique avec Negative Sampling
+### 4.2 Décodage en deux étapes (le cœur de la correction)
 
-Le modèle utilise deux matrices d'embeddings, $\mathbf{V}_{in}$ (nœud-centre) et $\mathbf{V}_{out}$ (nœud-contexte), chacune de dimension $d=32$. Pour une paire positive $(c, o)$ et $K=5$ négatifs $n_{1:K}$, la perte de Negative Sampling est :
+Puisque la connexité ne peut pas être imposée de façon incrémentale (§2), le décodage
+sépare génération et vérification :
 
-$$\mathcal{L}(c, o, n_{1:K}) = -\log \sigma\!\left(\mathbf{v}_{in,c}^\top \mathbf{v}_{out,o}\right) - \sum_{k=1}^{K} \log \sigma\!\left(-\mathbf{v}_{in,c}^\top \mathbf{v}_{out,n_k}\right)$$
+**Étape A — génération d'un chemin candidat dans `D`.** Beam search (largeur 4) sur
+les successeurs de `D`, masquant les nœuds déjà visités (softmax « skewed », garantit
+l'unicité position → nœud) :
 
-optimisée par **Adam** (Kingma & Ba, 2014). Les négatifs classiques sont tirés selon la distribution unigramme $P(n) \propto f(n)^{0.75}$, comme dans word2vec (Mikolov et al., 2013).
+$$P_{skew}(v\mid u,\mathcal U) = \frac{\mathbb 1[(u,v)\in A]\cdot\mathbb 1[v\notin\mathcal U]\cdot
+\exp(\mathrm{sim}(u,v)/\tau)}{\sum_{v'\in N^+(u)\setminus\mathcal U}\exp(\mathrm{sim}(u,v')/\tau)},
+\quad \tau=0.5$$
 
-Les paires d'entraînement sont générées par marches aléatoires (DeepWalk) sur `graphD`, suivies d'une fenêtre glissante de taille 3 (§ couples Skip-Gram du notebook).
+Aucune contrainte liée à `G` n'intervient à ce stade — on cherche un long chemin dans
+`D` guidé par la similarité d'embeddings.
 
-### 3.2 One-to-One Skew-GRAM
+**Étape B — extraction du plus long sous-chemin (D,G)-consistant.** Un sous-chemin
+**contigu** d'un chemin dans `D` est toujours lui-même un chemin dans `D`. On cherche
+donc, par fenêtre glissante sur le chemin candidat de longueur $L$, le plus long
+intervalle `[i..j]` dont l'ensemble de sommets induit un sous-graphe connexe dans `G`
+(Union-Find incrémental par fenêtre, $O(L^2\cdot\alpha(L))$, négligeable pour
+$L\le 100$). On retient le meilleur intervalle sur l'ensemble des nœuds de départ
+testés.
 
-**Motivation.** Un chemin simple est une injection entre positions et nœuds : un nœud ne peut être visité qu'une fois. Le Skip-Gram, hérité du texte, n'a aucune notion d'unicité (un mot peut se répéter dans une phrase). Utilisé naïvement pour décoder un chemin (choix glouton du voisin le plus similaire), il n'a donc **aucun mécanisme empêchant de revisiter un nœud déjà utilisé**.
+Ce décodage en deux temps remplace l'ancienne hypothèse erronée (arête aussi
+présente dans `G` à chaque étape) par la vraie contrainte : connexité de l'ensemble
+final, vérifiée a posteriori plutôt qu'imposée pas à pas.
 
-**Optimisation 1 — échantillonnage négatif structurel.** Les négatifs sont tirés uniquement parmi les non-voisins topologiques du nœud centre :
+## 5. Protocole expérimental
 
-$$P_{struct}(n \mid c) = \frac{\mathbb{1}[(c,n) \notin E]}{\left|\{v : (c,v) \notin E\}\right|}$$
+Pour chaque instance valide (`D` DAG, `G` connexe, 38/39 instances) : marches
+aléatoires sur `D` (40 par nœud de départ, longueur max. 30) → sous-échantillonnage
+des hubs → couples Skip-Gram (fenêtre 3) → entraînement Skew-GRAM (négatifs
+structurels, 8 époques, Adam lr=0.01) → décodage (étape A depuis chaque nœud de
+départ possible, étape B sur chaque candidat) → comparaison à ILP2. Graine unique
+`SEED=42`.
 
-ce qui renforce le signal d'adjacence réelle appris par le modèle (négatifs = vraies non-arêtes, plutôt qu'un tirage statistique agnostique de la topologie).
+## 6. Résultats
 
-**Optimisation 2 — sous-échantillonnage des hubs.** Formule de word2vec appliquée à la fréquence de visite des nœuds dans les marches :
+### 6.1 Tableau détaillé par instance
 
-$$P_{keep}(v) = \min\!\left(1,\ \sqrt{\frac{t}{f(v)}} + \frac{t}{f(v)}\right), \quad t = 10^{-3}$$
-
-qui rééquilibre la représentation des nœuds périphériques, souvent nécessaires pour prolonger un chemin, face aux nœuds très connectés qui dominent sinon l'entraînement.
-
-**Optimisation 3 — décodage contraint par softmax masquée (« skewed »).** Le chemin est construit par un beam search guidé par une distribution de probabilité qui retire toute la masse de probabilité des nœuds déjà visités et renormalise sur les seuls successeurs non-visités :
-
-$$P_{skew}(v \mid u, \mathcal{U}) = \frac{\mathbb{1}[(u,v)\in E] \cdot \mathbb{1}[v \notin \mathcal{U}] \cdot \exp(\mathrm{sim}(u,v)/\tau)}{\displaystyle\sum_{v' \in N(u)\setminus\mathcal{U}} \exp(\mathrm{sim}(u,v')/\tau)}, \qquad v \in N(u)\setminus\mathcal{U}$$
-
-où $\mathcal{U}$ est l'ensemble des nœuds déjà visités et $\tau=0.5$ une température. Ce masquage garantit qu'une correspondance déjà utilisée a une probabilité **strictement nulle** d'être réutilisée — la correspondance position → nœud reste bijective tout au long du décodage, d'où le nom *one-to-one*. Le Skip-Gram classique, à titre de comparaison objective, est décodé par une règle purement gloutonne qui **s'arrête** dès qu'elle retombe sur un nœud déjà visité (aucune gestion de la réutilisation, à l'image de ce qui se passe réellement en NLP).
-
-**Algorithme de décodage (pseudocode) :**
-
-```
-DÉCODER_ONE_TO_ONE(embeddings, graphe, nœud_départ, largeur_beam):
-    beams ← [ (chemin=[départ], visités={départ}, score=0) ]
-    RÉPÉTER jusqu'à longueur maximale :
-        candidats ← []
-        POUR chaque (chemin, visités, score) dans beams :
-            voisins ← successeurs(dernier nœud du chemin) \ visités
-            SI voisins vide : candidats.ajouter((chemin, visités, score))   # figé
-            SINON :
-                probs ← softmax_masquée(similarités(dernier nœud, voisins) / tau)
-                POUR chaque voisin v de probabilité p_v :
-                    candidats.ajouter((chemin + [v], visités ∪ {v}, score + log(p_v)))
-        beams ← top-`largeur_beam` candidats triés par (longueur, score)
-        SI aucun candidat n'a pu grandir : ARRÊTER
-    RETOURNER le plus long chemin observé parmi tous les beams
-```
-
-## 4. Protocole expérimental
-
-Pour chaque instance disponible : génération des marches aléatoires (40 marches par nœud de départ, longueur max. 30) → construction des couples Skip-Gram (fenêtre 3) → entraînement du modèle classique (négatifs unigrammes) et du modèle Skew-GRAM (négatifs structurels + sous-échantillonnage des hubs), 8 époques, `Adam(lr=0.01)` → décodage du meilleur chemin depuis chaque nœud de départ possible (glouton naïf pour le classique, beam search largeur 4 pour le Skew-GRAM) → comparaison à la référence ILP2. Une graine unique (`SEED=42`) est fixée pour `random`, `numpy` et `torch`, garantissant la reproductibilité intégrale de la pipeline.
-
-**Remarque sur ILP2.** Les temps d'exécution observés (15 à 63 secondes, pour seulement 100 nœuds) suggèrent qu'ILP2 opère sous un budget de calcul limité et ne garantit donc pas toujours la preuve d'optimalité formelle. La comparaison ci-dessous doit se lire comme *heuristique rapide vs. solveur exact sous contrainte de temps*, un cas d'usage réaliste où les méthodes heuristiques sont précisément recherchées.
-
-## 5. Résultats
-
-### 5.1 Tableau détaillé par instance
-
-| instance | ILP2 statut | ILP2 longueur | ILP2 temps (s) | classique longueur | classique temps (s) | Skew-GRAM longueur | Skew-GRAM temps (s) |
+| instance | ILP2 statut | ILP2 longueur | ILP2 temps (s) | Skew-GRAM brut (D, étape A) | Skew-GRAM (D,G)-consistant (étape A+B) | Skew-GRAM temps (s) | accélération vs ILP2 |
 |---|---|---|---|---|---|---|---|
-| 100_1 | non trouvé | — | 0.50 | 11 | 1.58 | 9 | 0.51 |
-| 100_121 | trouvé | 6 | 19.59 | 10 | 1.73 | **11** | 0.56 |
-| 100_126 | trouvé | 7 | 38.68 | 8 | 1.64 | 7 | 0.51 |
-| 100_128 | trouvé | 13 | 18.44 | 9 | 2.34 | 9 | 0.77 |
-| 100_14 | trouvé | 12 | 8.51 | 8 | 1.84 | 9 | 0.60 |
-| 100_18 | trouvé | 8 | 27.55 | 8 | 1.84 | 8 | 0.57 |
-| 100_190 | trouvé | 11 | 25.44 | **11** | 2.22 | 8 | 0.76 |
-| 100_193 | trouvé | 14 | 14.53 | 8 | 1.99 | 9 | 0.66 |
-| 100_197 | trouvé | 11 | 19.73 | 8 | 1.87 | 8 | 0.60 |
-| 100_201 | trouvé | 12 | 22.12 | **11** | 2.08 | 9 | 0.70 |
-| 100_207 | trouvé | 7 | 32.75 | **12** | 2.08 | 11 | 0.65 |
-| 100_227 | trouvé | 10 | 27.08 | 9 | 1.81 | 10 | 0.59 |
-| 100_228 | trouvé | 8 | 28.75 | **11** | 2.00 | 11 | 0.62 |
-| 100_251 | trouvé | 11 | 51.40 | 8 | 2.01 | **11** | 0.69 |
-| 100_254 | trouvé | 7 | 22.70 | **11** | 1.70 | 9 | 0.55 |
-| 100_269 | trouvé | 13 | 17.00 | 11 | 2.11 | 11 | 0.68 |
-| 100_304 | trouvé | 9 | 14.95 | 9 | 1.78 | 9 | 0.56 |
-| 100_320 | trouvé | 12 | 33.91 | **11** | 2.17 | 8 | 0.76 |
-| 100_324 | trouvé | 8 | 28.59 | **9** | 2.24 | 8 | 0.77 |
-| 100_332 | trouvé | 11 | 12.60 | 9 | 1.75 | 9 | 0.54 |
-| 100_341 | trouvé | 9 | 27.68 | 9 | 2.22 | 9 | 0.72 |
-| 100_352 | trouvé | 14 | 62.86 | 10 | 2.35 | **12** | 0.77 |
-| 100_388 | trouvé | 15 | 58.18 | 8 | 2.34 | **9** | 0.76 |
-| 100_397 | trouvé | 6 | 37.21 | 11 | 2.06 | **13** | 0.67 |
-| 100_402 | trouvé | 11 | 13.16 | 9 | 2.10 | 9 | 0.65 |
-| 100_411 | trouvé | 6 | 48.43 | 9 | 1.71 | 9 | 0.55 |
-| 100_413 | trouvé | 8 | 61.73 | 8 | 1.74 | 8 | 0.59 |
-| 100_429 | trouvé | 8 | 20.01 | 8 | 1.80 | 8 | 0.58 |
-| 100_437 | trouvé | 8 | 24.40 | **11** | 2.11 | 8 | 0.67 |
-| 100_457 | trouvé | 10 | 22.91 | 7 | 1.95 | **9** | 0.62 |
-| 100_471 | trouvé | 14 | 31.07 | 9 | 2.39 | 8 | 0.73 |
-| 100_478 | trouvé | 10 | 25.53 | 10 | 1.95 | 9 | 0.65 |
-| 100_489 | trouvé | 7 | 46.67 | 9 | 2.27 | 9 | 0.67 |
-| 100_491 | trouvé | 7 | 18.61 | 9 | 1.99 | 9 | 0.64 |
-| 100_52 | trouvé | 6 | 24.71 | 9 | 2.36 | **11** | 0.74 |
-| 100_527 | trouvé | 11 | 15.83 | 9 | 2.02 | **12** | 0.62 |
-| 100_563 | non trouvé | — | 3.50 | 9 | 1.44 | 8 | 0.44 |
-| 100_66 | trouvé | 16 | 9.98 | 11 | 2.87 | 11 | 0.87 |
-| 100_80 | trouvé | 10 | 34.64 | **11** | 1.93 | 9 | 0.62 |
+| 100_1 | non trouvé | — | 0.50 | 3 | 2 | 0.30 | ×1.6 |
+| 100_121 | trouvé | 6 | 19.59 | 3 | 3 | 0.32 | ×61.6 |
+| 100_128 | trouvé | 13 | 18.44 | 5 | 3 | 0.46 | ×40.4 |
+| 100_14 | trouvé | 12 | 8.51 | 5 | 2 | 0.34 | ×24.9 |
+| 100_18 | trouvé | 8 | 27.55 | 7 | 3 | 0.36 | ×76.8 |
+| 100_190 | trouvé | 11 | 25.44 | 6 | 5 | 0.44 | ×57.3 |
+| 100_193 | trouvé | 14 | 14.53 | 5 | 3 | 0.38 | ×37.9 |
+| 100_197 | trouvé | 11 | 19.73 | 4 | 4 | 0.38 | ×51.3 |
+| 100_201 | trouvé | 12 | 22.12 | 7 | 5 | 0.41 | ×54.3 |
+| 100_207 | trouvé | 7 | 32.75 | 5 | 4 | 0.40 | ×81.0 |
+| 100_227 | trouvé | 10 | 27.08 | 8 | 6 | 0.35 | ×77.8 |
+| 100_228 | trouvé | 8 | 28.75 | 5 | 3 | 0.40 | ×71.7 |
+| 100_251 | trouvé | 11 | 51.40 | 7 | 6 | 0.44 | ×116.3 |
+| 100_254 | trouvé | 7 | 22.70 | 6 | 3 | 0.40 | ×56.6 |
+| 100_269 | trouvé | 13 | 17.00 | 8 | 3 | 0.45 | ×38.1 |
+| 100_304 | trouvé | 9 | 14.95 | 9 | 4 | 0.39 | ×38.8 |
+| 100_320 | trouvé | 12 | 33.91 | 6 | 3 | 0.56 | ×60.1 |
+| 100_324 | trouvé | 8 | 28.59 | 6 | 2 | 0.56 | ×51.2 |
+| 100_332 | trouvé | 11 | 12.60 | 7 | 4 | 0.35 | ×36.0 |
+| 100_341 | trouvé | 9 | 27.68 | 4 | 3 | 0.45 | ×61.0 |
+| 100_352 | trouvé | 14 | 62.86 | 7 | 4 | 0.49 | ×128.5 |
+| 100_388 | trouvé | 15 | 58.18 | 7 | 6 | 0.45 | ×128.8 |
+| 100_397 | trouvé | 6 | 37.21 | 9 | 3 | 0.41 | ×90.5 |
+| 100_402 | trouvé | 11 | 13.16 | 8 | 2 | 0.41 | ×32.0 |
+| 100_411 | trouvé | 6 | 48.43 | 4 | 4 | 0.34 | ×140.7 |
+| 100_413 | trouvé | 8 | 61.73 | 6 | 2 | 0.36 | ×169.9 |
+| 100_429 | trouvé | 8 | 20.01 | 7 | 2 | 0.35 | ×56.5 |
+| 100_437 | trouvé | 8 | 24.40 | 7 | 4 | 0.41 | ×59.5 |
+| 100_457 | trouvé | 10 | 22.91 | 6 | 4 | 0.40 | ×56.9 |
+| 100_471 | trouvé | 14 | 31.07 | 8 | 3 | 0.44 | ×70.6 |
+| 100_478 | trouvé | 10 | 25.53 | 10 | 3 | 0.41 | ×63.0 |
+| 100_489 | trouvé | 7 | 46.67 | 6 | 3 | 0.39 | ×121.2 |
+| 100_491 | trouvé | 7 | 18.61 | 11 | 2 | 0.40 | ×46.3 |
+| 100_52 | trouvé | 6 | 24.71 | 6 | 3 | 0.46 | ×53.5 |
+| 100_527 | trouvé | 11 | 15.83 | 5 | 2 | 0.38 | ×41.5 |
+| 100_563 | non trouvé | — | 3.50 | 4 | 3 | 0.27 | ×13.2 |
+| 100_66 | trouvé | 16 | 9.98 | 12 | 7 | 0.71 | ×14.0 |
+| 100_80 | trouvé | 10 | 34.64 | 6 | 2 | 0.37 | ×92.6 |
 
-*(gras = la méthode obtenant le chemin le plus long sur cette instance)*
+Tableau complet également disponible dans `results/per_instance_results.csv`
+(38 instances valides sur 39 — `100_126` exclue car `G` n'y est pas connexe).
 
-Tableau complet également disponible dans `results/per_instance_results.csv`.
+### 6.2 Synthèse agrégée
 
-### 5.2 Synthèse agrégée
+| Métrique | Valeur |
+|---|---|
+| Instances évaluées | 38 (sur 39, `100_126` exclue) |
+| Longueur moyenne ILP2 (36 instances résolues) | 9.97 |
+| Longueur moyenne chemin brut Skew-GRAM (étape A, dans `D` seul) | 6.45 |
+| Longueur moyenne chemin (D,G)-consistant (étape A+B) | **3.42** |
+| Écart moyen à ILP2 (%) | −63.6 % |
+| Temps moyen Skew-GRAM (s) | 0.41 |
+| Temps moyen ILP2 (s) | 28.04 (moyenne biaisée par les temps d'échec) |
+| Accélération moyenne vs ILP2 | ×68.3 |
+| Instances où Skew-GRAM atteint/dépasse ILP2 | 0 / 36 |
+| Instances où le chemin brut est déjà (D,G)-consistant (aucune perte à l'étape B) | 3 / 38 |
 
-| Métrique | Skip-Gram classique | One-to-One Skew-GRAM |
-|---|---|---|
-| Longueur moyenne de chemin | **9.41** | 9.38 |
-| Longueur médiane | 9.0 | 9.0 |
-| Écart moyen à ILP2 (%, négatif = dépasse ILP2) | −3.17 % | −2.93 % |
-| Temps moyen (s) | 2.04 | **0.66** |
-| Accélération moyenne vs ILP2 | ×14.1 | **×43.5** |
-| Instances où la méthode atteint/dépasse ILP2 | 20 / 37 | 20 / 37 |
-| Skew-GRAM ≥ classique | — | **26 / 39** |
+### 6.3 Interprétation
 
-### 5.3 Interprétation
+**L'écart entre chemin brut (étape A) et chemin (D,G)-consistant (étape A+B) est
+important et systématique** : sur seulement 3 des 38 instances, le chemin brut généré
+dans `D` induisait déjà un sous-graphe connexe dans `G` sans aucune troncature. Dans
+tous les autres cas, l'étape B doit réduire fortement la longueur pour retrouver la
+connexité — la longueur moyenne passe de 6.45 (étape A) à 3.42 (étape A+B). **C'est
+exactement la manifestation concrète de l'erreur corrigée dans ce rapport** : un long
+chemin dans `D`, choisi sans tenir compte de `G`, n'a qu'une faible probabilité que
+son ensemble de sommets soit connexe dans `G`, car les embeddings de l'étape A ne sont
+entraînés que sur la structure de `D`.
 
-Sur cet échantillon élargi de 39 instances, le **One-to-One Skew-GRAM** :
-- égale ou dépasse le Skip-Gram classique sur **26 des 39 instances** (67 %) — la victoire en tête-à-tête est nette et stable même si la longueur moyenne globale des deux méthodes est très proche (9.38 contre 9.41) ;
-- atteint ou dépasse la référence ILP2 dans la même proportion que le classique (20/37 instances résolues chacun), montrant que les deux approches restent compétitives face à un solveur exact à budget de temps limité ;
-- est en moyenne **3 fois plus rapide** que le Skip-Gram classique (0.66 s contre 2.04 s), grâce au sous-échantillonnage des hubs qui réduit le nombre de couples d'entraînement et au beam search borné en largeur ;
-- offre une accélération moyenne de **×43.5 par rapport à ILP2** (contre ×14.1 pour le classique) — un gain de vitesse net pour une qualité de solution équivalente, ce qui constitue le principal avantage pratique démontré par cette étude.
+**Comparaison à ILP2.** Sur cette première version de l'algorithme, le Skew-GRAM en
+deux étapes ne dépasse ni n'égale ILP2 sur aucune des 36 instances résolues (longueur
+moyenne 3.42 contre 9.97). Il reste néanmoins **très largement plus rapide** (×68.3 en
+moyenne, jusqu'à ×170 sur certaines instances), ce qui en fait un candidat pertinent
+comme *filtre rapide* ou *warm-start*, mais pas encore comme substitut de qualité à
+ILP2 en l'état.
 
-Ces résultats, obtenus sur un échantillon plus large que la version initiale à 12 instances, nuancent la conclusion : le gain du Skew-GRAM en **longueur moyenne absolue** est faible (et disparaît presque en moyenne globale), mais son avantage en **taux de victoire tête-à-tête** (67 %) et surtout en **vitesse** reste net et constant à travers les deux échelles d'échantillon testées (12 puis 39 instances) — un signal de robustesse pour la conclusion principale du projet.
+**Cause principale de l'écart de qualité.** L'étape A optimise uniquement la
+similarité d'embeddings appris sur les marches de `D`, sans aucun signal sur `G`. La
+contrainte de connexité dans `G` n'intervient qu'a posteriori (étape B), qui ne peut
+que *retrancher* des nœuds au chemin généré, jamais en ajouter ni en réordonner. Une
+recherche qui intégrerait un signal de connectivité dans `G` dès l'étape A (par
+exemple un bonus de score pour les successeurs déjà adjacents à des sommets visités,
+sans que ce soit un filtre dur — puisqu'on a montré que la connexité incrémentale
+n'est pas nécessaire pour un ensemble final connexe) devrait réduire cet écart ; c'est
+la piste d'amélioration prioritaire (voir §8).
 
-### 5.4 Comparaison de sanité avec `gensim`
+## 7. Visualisations
 
-Un `Word2Vec` de `gensim` entraîné sur les mêmes marches aléatoires que l'instance représentative confirme la cohérence de notre implémentation *from scratch* : les deux modèles convergent vers un espace où des nœuds structurellement proches obtiennent une similarité cosinus élevée, avec un temps d'entraînement du même ordre de grandeur.
+Le notebook associé (`one_to_one_skewgram.ipynb`) produit six figures
+(`figures/01_...png` à `figures/06_...png`) : effet du sous-échantillonnage des hubs,
+courbe de perte d'entraînement, comparaison des longueurs de chemin (ILP2 / brut /
+(D,G)-consistant) et compromis qualité-temps, projections PCA et t-SNE des
+embeddings, et topologie comparée du chemin brut dans `D` et du sous-graphe induit
+dans `G` par le chemin (D,G)-consistant final.
 
-## 6. Visualisations
+## 8. Discussion
 
-Le notebook associé produit huit figures (`figures/01_...png` à `08_...png`) : distributions de degré et de statut ILP2 (exploration), fréquence des nœuds et effet du sous-échantillonnage (prétraitement), courbes de perte/accuracy (entraînement), comparaison des longueurs de chemin et compromis qualité/temps (évaluation), projections PCA et t-SNE des embeddings, et dessin de la topologie du graphe avec les chemins trouvés surlignés.
+**Avantages.** Le décodage en deux étapes est fidèle à la définition corrigée du
+problème (D,G)-consistant, contrairement à la version précédente. La séparation
+explicite entre génération (étape A) et vérification de connexité (étape B) rend
+directement mesurable, pour chaque instance, le coût en longueur de la contrainte de
+`G` — un diagnostic qui n'existait pas dans la version précédente.
 
-## 7. Discussion
+**Limites.** Cette première implémentation du décodage en deux étapes est
+volontairement simple : l'étape B ne considère que des intervalles **contigus** du
+chemin produit par l'étape A, sans réordonnancement ni recherche jointe. Les
+résultats montrent que ceci pénalise fortement la longueur finale par rapport à ILP2.
+L'échantillon (38 instances sur ~890 disponibles) limite par ailleurs la portée
+statistique des conclusions quantitatives.
 
-**Avantages.** Le décodage contraint garantit nativement la validité *one-to-one* d'un chemin, sans vérification post-hoc. La vitesse (fraction de seconde à quelques secondes par instance) permet d'explorer un grand nombre d'instances là où ILP2 nécessite plusieurs dizaines de secondes par graphe — un facteur déterminant si l'objectif est d'obtenir rapidement une bonne solution plutôt qu'une preuve d'optimalité.
+**Cas d'usage réaliste avec l'état actuel de l'heuristique.** Filtre rapide
+(élimination d'instances triviales avant d'investir du temps ILP), ou point de départ
+(warm-start) pour un solveur exact — pas encore un substitut de qualité comparable à
+ILP2.
 
-**Limites.** Le Skew-GRAM reste une heuristique sans garantie d'optimalité. Le vocabulaire (les identifiants de nœuds) n'est pas transférable d'un graphe à l'autre : chaque instance nécessite un nouvel entraînement. L'échantillon de données disponible (39 instances sur ~890, soit ≈ 4.4 %) limite encore la portée statistique des conclusions quantitatives, même si les deux passes expérimentales (12 puis 39 instances) convergent vers la même conclusion qualitative.
+## 9. Conclusion
 
-**Cas d'usage.** Cette approche est pertinente sous budget de calcul strict — recherche heuristique initiale, warm-start pour un solveur exact, filtrage rapide d'instances faciles avant d'investir du temps ILP sur les plus difficiles — ou plus généralement dans tout contexte de plongement de graphes où la contrainte de non-répétition est structurellement centrale (tournées, ordonnancement, planification de trajets).
-
-## 8. Conclusion
-
-Ce projet a transposé le Skip-Gram du domaine textuel à un domaine de graphes aléatoires orientés, en identifiant une inadéquation fondamentale entre l'hypothèse implicite du Skip-Gram classique (répétition possible d'un token) et la contrainte structurelle d'un chemin (correspondance bijective). Le **One-to-One Skew-GRAM**, en intégrant cette contrainte à la fois dans l'entraînement (échantillonnage négatif structurel, sous-échantillonnage des hubs) et dans le décodage (softmax masquée avec beam search), améliore la qualité des chemins produits par rapport au Skip-Gram classique tout en restant très largement plus rapide qu'un solveur exact (ILP2), sur l'échantillon de données disponible.
+Ce projet corrige une erreur de modélisation identifiée par le professeur : le chemin
+cherché dans le DAG `D` ne doit pas être un chemin dans `G`, mais son ensemble de
+sommets doit seulement induire un sous-graphe **connexe** (potentiellement un arbre)
+dans le graphe non-orienté connexe `G`. Le **One-to-One Skew-GRAM** — désormais seule
+méthode d'embedding du projet — est associé à un décodeur en deux étapes (génération
+dans `D`, puis extraction du plus long sous-chemin contigu (D,G)-consistant) fidèle à
+cette définition. Les résultats, recalculés honnêtement sur les données disponibles,
+montrent que cette première version de l'heuristique reste loin de la qualité d'ILP2
+en longueur de chemin, mais conserve un avantage de vitesse très net — un point de
+départ pour les améliorations décrites ci-dessous plutôt qu'une solution aboutie.
 
 ### Recommandations d'amélioration future
 
-1. Lever la limitation de débit de l'API Google Drive pour évaluer la méthode sur l'ensemble des ~890 instances disponibles.
-2. Remplacer le beam search par un décodeur plus expressif (Pointer Network, Vinyals et al., 2015 ; Transformer conditionné sur le graphe).
-3. Entraîner directement une politique de construction de chemin par apprentissage par renforcement (récompense = longueur finale).
-4. Comparer à des embeddings appris par réseaux de neurones sur graphes (GraphSAGE, GAT) plutôt que par marches aléatoires.
-5. Étudier des schémas de méta-apprentissage permettant un transfert entre graphes malgré l'absence de vocabulaire commun.
+1. Intégrer un signal de connectivité dans `G` directement dans le score de décodage
+   de l'étape A (recherche jointe D+G) plutôt qu'une vérification a posteriori
+   uniquement soustractive.
+2. Autoriser l'étape B à considérer des réordonnancements ou des sous-ensembles non
+   contigus compatibles avec un ordre topologique de `D`, plutôt que les seuls
+   intervalles contigus du chemin brut.
+3. Étendre l'évaluation à l'ensemble des ~890 instances disponibles (lever la
+   limitation de débit de l'API Google Drive, voir `data/README.md`).
+4. Entraîner des embeddings joints sur `D` et `G` plutôt que sur les seules marches de
+   `D`, pour que l'étape A dispose déjà d'un signal de connectivité dans `G`.
+5. Comparer à un décodeur par Pointer Network ou par apprentissage par renforcement,
+   conditionné conjointement sur `D` et `G`.
 
 ## Références
 
 - Mikolov, T., Sutskever, I., Chen, K., Corrado, G., & Dean, J. (2013). *Distributed Representations of Words and Phrases and their Compositionality*. NeurIPS.
 - Perozzi, B., Al-Rfou, R., & Skiena, S. (2014). *DeepWalk: Online Learning of Social Representations*. KDD.
 - Grover, A., & Leskovec, J. (2016). *node2vec: Scalable Feature Learning for Networks*. KDD.
-- Vinyals, O., Fortunato, M., & Jaitly, N. (2015). *Pointer Networks*. NeurIPS.
 - Kingma, D. P., & Ba, J. (2014). *Adam: A Method for Stochastic Optimization*. arXiv:1412.6980.
 
 ## Annexes / reproductibilité
 
 - Code complet, commenté et exécutable de bout en bout : `one_to_one_skewgram.ipynb`.
 - Tableaux de résultats bruts : `results/per_instance_results.csv`, `results/summary.csv`.
-- Figures : `figures/01_exploration_overview.png` à `figures/08_graph_topology_paths.png`.
+- Figures : `figures/01_hub_subsampling.png` à `figures/06_graph_topology_paths.png`.
 - Provenance et procédure d'extension du jeu de données : `data/README.md`.
 - Graine aléatoire unique : `SEED = 42` (fixée pour `random`, `numpy`, `torch`).

@@ -1,8 +1,2 @@
-métrique,Skip-Gram classique,One-to-One Skew-GRAM
-longueur moyenne de chemin,9.405405405405405,9.378378378378379
-longueur médiane,9.0,9.0
-"écart moyen à ILP2 (%, positif = en-dessous)",-3.167451917451918,-2.926431676431678
-temps moyen (s),2.015554105913317,0.6437372194754111
-accélération moyenne vs ILP2 (x),14.253355607473594,44.31880924760368
-instances ≥ ILP2 (sur celles résolues),20/37,20/37
-skew ≥ classique (sur toutes les instances),—,26/39
+n_instances,n_ilp2_found,mean_ilp2_length,mean_skewgram_raw_length,mean_skewgram_DG_consistent_length,mean_gap_pct_vs_ilp2,mean_skewgram_time_s,mean_ilp2_time_s,mean_speedup_vs_ilp2,n_reaches_or_beats_ilp2,n_raw_path_already_DG_consistent
+38,36,9.972222222222221,6.447368421052632,3.4210526315789473,-63.62139789223123,0.41106054657383967,28.035272222222222,68.30528327457696,0,3
