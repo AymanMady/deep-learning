@@ -1,0 +1,54 @@
+\documentclass{llncs}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{hyperref}
+
+\begin{document}
+
+\title{One-to-one SkewGRAM: from biology to NLP}
+\author{
+Bechir Mady\inst{1} \and 
+Abderahmane Abderrahmane\inst{1} \and 
+El Moustapha Mohamed El Moustapha\inst{1} \and 
+Mohamedou Yahya Cheikh Mohamed Vall\inst{1}
+}
+
+\institute{
+Institut Supérieur du Numérique (SupNum), Nouakchott, Mauritania\\
+\email{\{22014, 22053, 22013, 24239\}@supnum.mr}
+}
+
+\maketitle
+
+\begin{abstract}
+The One-to-one SkewGRAM problem is a complex combinatorial optimization challenge arising in bioinformatics, aiming to identify conserved metabolic and genomic signatures. It requires finding a path in a directed acyclic graph (representing metabolic pathways) such that its vertices induce a connected subgraph in an undirected graph (representing genomic interactions). Previous approaches using Graph Neural Networks (GNNs) have shown promise but often struggle with finding long paths or require computationally expensive post-processing. In this paper, we propose a novel approach inspired by Natural Language Processing (NLP), specifically the Skip-Gram model. We transpose this technique to biological graphs, using a two-stage decoding process and structural negative sampling. Our method generates valid consistent paths significantly faster than Exact Solvers (ILP), achieving an average speedup of 68x, while offering a competitive alternative to existing GNN approaches.
+\keywords{Combinatorial Optimization \and Natural Language Processing \and Skip-Gram \and Biological Networks \and Graph Algorithms.}
+\end{abstract}
+
+\section{Introduction}
+Artificial Intelligence and its applications are increasingly relevant to bioinformatics. A key challenge is the integration of multiple biological networks to extract meaningful functional modules. The One-to-one SkewGRAM problem addresses this by seeking paths that are consistent across two different graphs: a directed graph (causal processes) and an undirected graph (functional associations).
+
+Recent advances have applied Graph Neural Networks (GNNs) to this problem, yet these methods remain slow and complex. In this work, we propose to improve upon the GNN approach with a faster NLP-based method, adapting the Skip-Gram model (popularized by word2vec and DeepWalk) to solve this specific combinatorial constraints problem.
+
+\section{Problem Formulation}
+Let $D = (V, A)$ be a Directed Acyclic Graph (DAG) and $G = (V, E)$ be an undirected graph. A path $P = (v_1, \dots, v_k)$ in $D$ is said to be $(D,G)$-consistent if the subgraph of $G$ induced by $\{v_1, \dots, v_k\}$ is connected. Finding the longest such path is NP-hard.
+
+\section{Proposed NLP Approach: Skew-GRAM}
+Our approach translates graph nodes into "words" and random walks on $D$ into "sentences". 
+\subsection{Node Embeddings}
+We learn continuous representations of nodes by optimizing a Skip-Gram objective. Unlike standard word2vec, we use structural negative sampling, drawing negative examples from nodes that are not successors in $D$.
+\subsection{Two-Stage Decoding}
+To enforce the $(D,G)$-consistency constraint:
+1. \textbf{Generation}: A beam search on $D$ guided by embedding similarity generates long candidate paths.
+2. \textbf{Filtering}: A sliding window with an incremental Union-Find algorithm extracts the longest contiguous sub-path that induces a connected subgraph in $G$.
+
+\section{Experimental Results}
+We evaluated our approach on a dataset of synthetic instances (Erdős-Rényi graphs modeling biological networks). Compared to the ILP2 exact solver, our Skew-GRAM method is extremely fast (average 0.41s vs 28s), yielding a 68x speedup. While the exact solver guarantees the optimal length, our method provides a scalable heuristic that outperforms traditional GNN baselines in inference speed.
+
+\section{Conclusion}
+By treating biological paths as linguistic sequences and leveraging NLP techniques, we introduce a fast and scalable heuristic for the One-to-one SkewGRAM problem. Future work will explore joint training on both graphs to further improve path length.
+
+\section*{Acknowledgments}
+We extend our gratitude to our supervisors, Dr. Mohamed Lemine Ahmed Sidi and Dr. Hafedh Mohamed Babou, for their guidance.
+
+\end{document}

@@ -1,0 +1,57 @@
+\documentclass{llncs}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{hyperref}
+
+\begin{document}
+
+\title{One-to-one SkewGRAM: de la biologie au NLP}
+\author{
+Bechir Mady\inst{1} \and 
+Abderahmane Abderrahmane\inst{1} \and 
+El Moustapha Mohamed El Moustapha\inst{1} \and 
+Mohamedou Yahya Cheikh Mohamed Vall\inst{1}
+}
+
+\institute{
+Institut Supérieur du Numérique (SupNum), Nouakchott, Mauritanie\\
+\email{\{22014, 22053, 22013, 24239\}@supnum.mr}
+}
+
+\maketitle
+
+\begin{abstract}
+Le problème One-to-one SkewGRAM est un défi d'optimisation combinatoire complexe issu de la bio-informatique, visant à identifier des signatures métaboliques et génomiques conservées. Il nécessite de trouver un chemin dans un graphe orienté acyclique (représentant des voies métaboliques) tel que ses sommets induisent un sous-graphe connexe dans un graphe non-orienté (représentant des interactions génomiques). Les approches précédentes utilisant les réseaux de neurones sur graphes (GNN) ont montré des promesses mais peinent souvent à trouver des chemins longs ou nécessitent un post-traitement coûteux. Dans cet article, nous proposons une nouvelle approche inspirée du Traitement du Langage Naturel (NLP), spécifiquement le modèle Skip-Gram. Nous transposons cette technique aux graphes biologiques, en utilisant un processus de décodage en deux étapes et un échantillonnage négatif structurel. Notre méthode génère des chemins valides significativement plus rapidement que les solveurs exacts (ILP), atteignant une accélération moyenne de 68x, tout en offrant une alternative compétitive aux approches GNN existantes.
+\keywords{Optimisation Combinatoire \and Traitement du Langage Naturel \and Skip-Gram \and Réseaux Biologiques \and Algorithmes de Graphes.}
+\end{abstract}
+
+\section{Introduction}
+L'intelligence artificielle et ses applications sont de plus en plus pertinentes pour la bio-informatique. Un défi clé est l'intégration de multiples réseaux biologiques pour extraire des modules fonctionnels significatifs. Le problème One-to-one SkewGRAM aborde cela en cherchant des chemins qui sont cohérents à travers deux graphes différents : un graphe orienté (processus causaux) et un graphe non-orienté (associations fonctionnelles).
+
+Les avancées récentes ont appliqué les réseaux de neurones sur graphes (GNN) à ce problème, mais ces méthodes restent lentes et complexes. Dans ce travail, nous proposons d'améliorer l'approche GNN avec une méthode basée sur le NLP plus rapide, en adaptant le modèle Skip-Gram (popularisé par word2vec et DeepWalk) pour résoudre ce problème spécifique de contraintes combinatoires.
+
+\section{Formulation du Problème}
+Soit $D = (V, A)$ un graphe orienté acyclique (DAG) et $G = (V, E)$ un graphe non-orienté. Un chemin $P = (v_1, \dots, v_k)$ dans $D$ est dit $(D,G)$-consistant si le sous-graphe de $G$ induit par $\{v_1, \dots, v_k\}$ est connexe. Trouver le plus long chemin de ce type est un problème NP-difficile.
+
+\section{Approche NLP Proposée : Skew-GRAM}
+Notre approche traduit les nœuds de graphe en "mots" et les marches aléatoires sur $D$ en "phrases".
+\subsection{Plongements de Nœuds (Embeddings)}
+Nous apprenons des représentations continues des nœuds en optimisant un objectif Skip-Gram. Contrairement au word2vec standard, nous utilisons un échantillonnage négatif structurel, en tirant des exemples négatifs parmi les nœuds qui ne sont pas des successeurs dans $D$.
+\subsection{Décodage en Deux Étapes}
+Pour appliquer la contrainte de $(D,G)$-consistance :
+1. \textbf{Génération} : Une recherche en faisceau (beam search) sur $D$ guidée par la similarité des embeddings génère de longs chemins candidats.
+2. \textbf{Filtrage} : Une fenêtre glissante avec un algorithme Union-Find incrémental extrait le plus long sous-chemin contigu qui induit un sous-graphe connexe dans $G$.
+
+\section{Résultats Expérimentaux}
+Nous avons évalué notre approche sur un ensemble de données d'instances synthétiques (graphes d'Erdős-Rényi modélisant des réseaux biologiques). Comparé au solveur exact ILP2, notre méthode Skew-GRAM est extrêmement rapide (0,41s en moyenne contre 28s), offrant une accélération de 68x. Bien que le solveur exact garantisse la longueur optimale, notre méthode fournit une heuristique scalable qui surpasse les baselines GNN traditionnelles en vitesse d'inférence.
+
+\section{Conclusion}
+En traitant les chemins biologiques comme des séquences linguistiques et en tirant parti des techniques NLP, nous introduisons une heuristique rapide et scalable pour le problème One-to-one SkewGRAM. Les travaux futurs exploreront l'entraînement conjoint sur les deux graphes pour améliorer davantage la longueur des chemins.
+
+\section*{Remerciements}
+Nous exprimons notre gratitude à nos superviseurs, le Dr. Mohamed Lemine Ahmed Sidi et le Dr. Hafedh Mohamed Babou, pour leurs conseils.
+
+\end{document}
