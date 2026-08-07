@@ -1,4 +1,4 @@
-# One-to-One SkewGRAM : de la Biologie au Traitement du Langage Naturel (NLP)
+# One-to-One SkewGRAM : Optimisation Combinatoire par Décomposition sur Graphes
 
 **Institut Supérieur du Numérique (SupNum), Nouakchott, Mauritanie**  
 **Équipe :** Bechir Mady, Abderahmane Abderrahmane, El Moustapha Mohamed El Moustapha, Mohamedou Yahya Cheikh Mohamed Vall  
@@ -8,48 +8,73 @@
 
 ## 📌 À propos de ce projet
 
-Ce dépôt contient le code et les données liés à notre article de recherche, intitulé **"One-to-one SkewGRAM: from biology to NLP"**, soumis à la conférence **I2COMSAPP'26** (Track 11: Other Relevant Topics in AI).
+Ce dépôt contient le code et les données liés à notre article de recherche, intitulé **"One-to-one SkewGRAM: from biology to NLP"**, soumis à la conférence **I2COMSAPP'26** (Track 11: Other Relevant Topics in AI — Optimisation Combinatoire).
 
-Le projet s'attaque à un problème d'optimisation combinatoire complexe issu de la **bio-informatique**, connu sous le nom de **problème One-to-One SkewGRAM**. Ce problème vise à identifier des signatures métaboliques et génomiques conservées entre différentes espèces. Pour le résoudre, nous proposons une approche novatrice qui transpose des techniques modernes issues du **Traitement du Langage Naturel (NLP)**, plus spécifiquement le modèle **Skip-Gram**, au domaine des graphes.
+Le projet s'attaque à un problème d'optimisation combinatoire complexe issu de la **bio-informatique**, connu sous le nom de **problème One-to-One SkewGRAM**. Ce problème vise à identifier des signatures métaboliques et génomiques conservées entre différentes espèces, en cherchant le **plus long chemin cohérent** à travers deux réseaux biologiques simultanément.
+
+---
 
 ## 🧬 Le Problème (D,G)-consistant
 
-L'objectif du problème One-to-One SkewGRAM est de trouver le plus long chemin qui respecte à la fois un ordre causal et une cohérence topologique à travers deux réseaux biologiques distincts mais partageant les mêmes éléments :
+L'objectif du problème One-to-One SkewGRAM est de trouver le plus long chemin qui respecte à la fois un **ordre causal** et une **cohérence topologique** à travers deux réseaux biologiques :
 
-1. **Un graphe orienté acyclique $D = (V, A)$** : qui modélise des processus biologiques dirigés (par exemple, des voies métaboliques).
-2. **Un graphe non-orienté $G = (V, E)$** : qui modélise des associations fonctionnelles ou physiques (par exemple, la proximité des gènes ou les interactions protéiques).
+1. **Un graphe orienté acyclique $D = (V, A)$** : modélise des processus biologiques **dirigés** (voies métaboliques, réactions enzymatiques).
+2. **Un graphe non-orienté $G = (V, E)$** : modélise des **associations fonctionnelles** (interactions protéine-protéine, proximité génomique).
 
 Un chemin $P = (v_1, v_2, \dots, v_k)$ dans $D$ est dit **(D,G)-consistant** si :
-- C'est un chemin valide dans le graphe orienté $D$.
-- Le sous-graphe induit par les sommets de ce chemin dans le graphe non-orienté $G$ est **connexe**.
+- ✅ C'est un chemin valide dans le graphe orienté $D$ (ordre causal respecté).
+- ✅ Le sous-graphe induit par les sommets de $P$ dans $G$ est **connexe** (tous les nœuds se "touchent" fonctionnellement).
 
-## 🚀 Notre Contribution : Skew-GRAM
+**Trouver le plus long tel chemin est un problème NP-difficile.** Les solveurs exacts (ILP) sont trop lents pour les grands graphes biologiques réels.
 
-Des travaux antérieurs (notamment basés sur les Graph Neural Networks - GNN) ont montré des limites en termes de longueur de chemin trouvé ou de temps d'exécution. Nous améliorons l'approche GNN avec une méthode NLP beaucoup plus rapide.
+---
 
-Notre méthode, **Skew-GRAM**, repose sur :
-- **L'Apprentissage de Représentations de Nœuds (Node Embeddings)** : En utilisant des marches aléatoires sur le graphe $D$ (à l'instar de DeepWalk/node2vec) traitées comme des "phrases", et les nœuds comme des "mots".
-- **Un Échantillonnage Négatif Structurel** : Au lieu de tirer des exemples négatifs au hasard, nous ciblons les non-successeurs dans le graphe $D$ pour renforcer le respect de l'ordre topologique.
-- **Un Décodage en Deux Étapes** : 
-  1. Génération de chemins candidats via *beam search* guidé par la similarité des embeddings dans $D$.
-  2. Vérification de la (D,G)-consistance et extraction du plus long sous-chemin valide.
+## 🚀 Notre Contribution : Algorithme G-First Guidé (3 Phases)
 
-## 📊 Résultats Clés
+Les travaux antérieurs (GNN, ILP2) montrent des limites sévères :
+- **ILP2** (solveur exact) : trouve la solution optimale mais prend **28 secondes** par instance de 100 nœuds.
+- **GNN (DL2)** : rapide mais trouve des chemins de seulement **1.2 nœuds** en moyenne.
 
-Notre méthode permet de trouver des chemins (D,G)-consistants valides de manière **extrêmement rapide**. Comparé à un solveur exact (Programmation Linéaire en Nombres Entiers - ILP2), notre heuristique est en moyenne **68 fois plus rapide**, ce qui ouvre la voie au passage à l'échelle sur de très grands réseaux biologiques, tout en surpassant la vitesse d'inférence et la complexité des modèles GNN existants.
+Notre approche, **G-First Guidé**, exploite une propriété mathématique fondamentale : *tout chemin (D,G)-consistant est nécessairement contenu dans une même composante connexe de G.*
+
+Nous avons conçu un algorithme rigoureux en 3 phases garantissant la consistance :
+
+1. **Décomposition (Réduction de l'espace) :** Décomposition de G en composantes connexes via Union-Find. Cela permet de restreindre la recherche dans le DAG $D$ uniquement aux nœuds d'une même composante de $G$.
+2. **Exploration Biaisée :** Génération massive (50 000 marches) de marches aléatoires dans le sous-DAG $D_C$. Ces marches sont guidées : la probabilité de choisir un prochain nœud est fortement augmentée si ce nœud est connecté (dans $G$) au chemin en cours de construction. Cela garantit un chemin "compact" fonctionnellement.
+3. **Validation Exacte (Étape B) :** Extraction du plus long sous-chemin contigu dont les nœuds induisent un sous-graphe strictement connexe dans $G$ (via Union-Find incrémental à fenêtre glissante).
+
+---
+
+## 📊 Résultats Expérimentaux (sur 39 instances, 100 nœuds)
+
+| Méthode | Longueur moy. | Temps moy. | vs ILP2 (Vitesse) |
+|---|---|---|---|
+| GNN DL2 (état de l'art) | ~1.2 nœuds | — | — |
+| **ILP2** (solveur exact, référence) | **9.97 nœuds** | **28 secondes** | référence |
+| **🥇 G-First Guidé (notre méthode)** | **6.97 nœuds** | **0.27 secondes** | **~100x plus rapide** |
+
+- ✅ **Qualité exceptionnelle pour une heuristique :** Avec ~7 nœuds en moyenne, G-First Guidé surpasse largement l'état de l'art GNN (1.2 nœuds) et se rapproche de l'optimum absolu (9.97) sans utiliser de solveur lourd.
+- ✅ **Accélération fulgurante :** L'algorithme résout l'instance en seulement **0.27 secondes**, le rendant 100 fois plus rapide qu'ILP2, ce qui permet un passage à l'échelle sur des génomes entiers.
+
+---
 
 ## ⚙️ Reproductibilité
 
-Le code complet, incluant l'entraînement du modèle Skew-GRAM et l'évaluation, est disponible dans le notebook Jupyter :
+Le code complet de l'algorithme G-First Guidé et de l'évaluation est disponible dans le notebook Jupyter :
 - `one_to_one_skewgram.ipynb`
 
+### Comment exécuter :
+1. Ouvrez `one_to_one_skewgram.ipynb` dans Jupyter ou VS Code.
+2. Cliquez sur **"Run All"** (Exécuter tout).
+3. Les résultats sont sauvegardés dans `results/summary.csv` et `results/per_instance_results.csv`.
+
 ### Organisation du dépôt
-- `data/` : Contient les instances de graphes (fichiers `graphD.txt`, `graphG.txt` et solutions ILP2).
-- `figures/` : Visualisations générées (embeddings PCA/t-SNE, topologie des graphes).
-- `results/` : Tableaux de résultats bruts (.csv).
+- `data/raw/` : Instances de graphes (fichiers `graphD.txt`, `graphG.txt`, `solution.txt`).
+- `figures/` : Visualisations générées.
+- `results/` : Tableaux de résultats bruts (`.csv`).
 - `paper_en/` : Code source LaTeX de notre article (version anglaise) pour I2COMSAPP'26.
 - `paper_fr/` : Code source LaTeX de notre article (version française).
-- `Microsoft+Word+Proceedings+Templates/` : Template Springer fourni.
+- `Microsoft+Word+Proceedings+Templates/` : Template Springer fourni par la conférence.
 
 ---
-*Ce projet est réalisé dans le cadre de nos études à SupNum et de notre publication pour la conférence I2COMSAPP'26.*
+*Ce projet est réalisé dans le cadre de nos études à l'Institut Supérieur du Numérique (SupNum) et de notre publication pour la conférence I2COMSAPP'26, Université de Nouakchott, Mauritanie.*
