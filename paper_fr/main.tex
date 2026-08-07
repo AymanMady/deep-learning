@@ -5,6 +5,7 @@
 \usepackage{graphicx}
 \usepackage{amsmath,amssymb}
 \usepackage{hyperref}
+\usepackage{booktabs}
 
 \begin{document}
 
@@ -29,29 +30,114 @@ Le problème One-to-one SkewGRAM est un défi d'optimisation combinatoire comple
 \end{abstract}
 
 \section{Introduction}
-L'intelligence artificielle et ses applications sont de plus en plus pertinentes pour la bio-informatique. Un défi clé est l'intégration de multiples réseaux biologiques pour extraire des modules fonctionnels significatifs. Le problème One-to-one SkewGRAM aborde cela en cherchant des chemins qui sont cohérents à travers deux graphes différents : un graphe orienté (processus causaux) et un graphe non-orienté (associations fonctionnelles).
+L'intelligence artificielle et ses applications sont de plus en plus pertinentes pour la bio-informatique, notamment dans les pays en développement où ces technologies offrent un potentiel de transformation rapide. Un défi majeur dans ce domaine est l'intégration de multiples réseaux biologiques pour extraire des modules fonctionnels significatifs. Le métabolisme cellulaire, par exemple, peut être modélisé comme un graphe orienté où les réactions biochimiques sont des arcs reliant des métabolites. Parallèlement, les interactions physiques entre les gènes ou les protéines peuvent être modélisées par des graphes non-orientés.
 
-Les avancées récentes ont appliqué les réseaux de neurones sur graphes (GNN) à ce problème, mais ces méthodes restent lentes et complexes. Dans ce travail, nous proposons d'améliorer l'approche GNN avec une méthode basée sur le NLP plus rapide, en adaptant le modèle Skip-Gram (popularisé par word2vec et DeepWalk) pour résoudre ce problème spécifique de contraintes combinatoires.
+Le problème One-to-one SkewGRAM aborde l'intégration de ces deux niveaux d'information en cherchant des chemins qui sont cohérents à travers deux graphes différents : un graphe orienté (processus causaux) et un graphe non-orienté (associations fonctionnelles). L'identification de tels chemins permet de découvrir des modules fonctionnels conservés au cours de l'évolution.
+
+Les avancées récentes ont appliqué les réseaux de neurones sur graphes (GNN) à ce problème, mais ces méthodes restent limitées soit par la courte longueur des chemins trouvés (en moyenne 1.2 nœuds), soit par la nécessité d'un post-traitement lourd. Dans ce travail, nous proposons d'améliorer l'approche GNN avec une méthode basée sur le NLP (Traitement du Langage Naturel) plus rapide. En adaptant le modèle Skip-Gram (popularisé par word2vec et DeepWalk), nous abordons ce problème spécifique de contraintes combinatoires.
 
 \section{Formulation du Problème}
-Soit $D = (V, A)$ un graphe orienté acyclique (DAG) et $G = (V, E)$ un graphe non-orienté. Un chemin $P = (v_1, \dots, v_k)$ dans $D$ est dit $(D,G)$-consistant si le sous-graphe de $G$ induit par $\{v_1, \dots, v_k\}$ est connexe. Trouver le plus long chemin de ce type est un problème NP-difficile.
+Le problème One-to-one SkewGRAM peut être défini formellement comme suit :
+
+Soit $V = \{v_1, v_2, \dots, v_n\}$ un ensemble de nœuds (entités biologiques).
+\begin{itemize}
+    \item $D = (V, A)$ est un graphe orienté acyclique (DAG) représentant des processus biologiques directionnels.
+    \item $G = (V, E)$ est un graphe non-orienté encodant des interactions fonctionnelles.
+\end{itemize}
+
+L'objectif est de trouver un chemin $P = (v_1, \dots, v_k)$ dans $D$ tel que :
+\begin{enumerate}
+    \item \textbf{Condition de chemin} : $(v_i, v_{i+1}) \in A$ pour tout $i$, c'est-à-dire que $P$ est un chemin orienté valide dans $D$.
+    \item \textbf{Condition de connectivité} : Le sous-graphe de $G$ induit par les sommets $\{v_1, \dots, v_k\}$ est connexe.
+\end{enumerate}
+
+Un tel chemin est dit \textbf{(D,G)-consistant}. Trouver le plus long chemin (D,G)-consistant est un problème NP-difficile. Les solveurs exacts comme la Programmation Linéaire en Nombres Entiers (ILP) fournissent la longueur optimale mais souffrent de temps d'exécution exponentiels sur de grands graphes.
 
 \section{Approche NLP Proposée : Skew-GRAM}
-Notre approche traduit les nœuds de graphe en "mots" et les marches aléatoires sur $D$ en "phrases".
-\subsection{Plongements de Nœuds (Embeddings)}
-Nous apprenons des représentations continues des nœuds en optimisant un objectif Skip-Gram. Contrairement au word2vec standard, nous utilisons un échantillonnage négatif structurel, en tirant des exemples négatifs parmi les nœuds qui ne sont pas des successeurs dans $D$.
+Notre approche s'inspire des succès du NLP pour l'apprentissage de représentations, en traduisant les nœuds de graphe en "mots" et les marches aléatoires sur $D$ en "phrases".
+
+\subsection{Plongements de Nœuds (Embeddings) et Skip-Gram}
+À l'instar de DeepWalk ou node2vec, nous générons des séquences de nœuds via des marches aléatoires sur le graphe orienté $D$. Nous apprenons ensuite des matrices d'embeddings $\mathbf{V}_{in}, \mathbf{V}_{out} \in \mathbb{R}^{N\times d}$ ($d=32$). 
+Cependant, contrairement au Skip-Gram classique, nous introduisons un \textbf{échantillonnage négatif structurel}.
+
+La fonction de perte est optimisée comme suit :
+\begin{equation}
+\mathcal{L}(c,o,n_{1:K}) = -\log\sigma(\mathbf{v}_{in,c}^\top \mathbf{v}_{out,o}) - \sum_{k=1}^K \log\sigma(-\mathbf{v}_{in,c}^\top \mathbf{v}_{out,n_k})
+\end{equation}
+
+Les négatifs structurels $n_k$ sont tirés parmi les non-successeurs du nœud cible $c$ dans $D$ ($P_{struct}(n\mid c) \propto \mathbf{1}[(c,n)\notin A]$). Cela force l'espace latent à pénaliser fortement les transitions impossibles dans le graphe causal, capturant ainsi rigoureusement la structure du DAG.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{figures/04_pca_embeddings.png}
+\caption{Projection PCA des embeddings de nœuds générés par Skew-GRAM. La structure latente capture l'ordre topologique du graphe orienté $D$.}
+\label{fig:pca}
+\end{figure}
+
+Nous appliquons également un sous-échantillonnage des "hubs" (nœuds très connectés) pour éviter que les chemins très denses ne dominent les probabilités de transition.
+
 \subsection{Décodage en Deux Étapes}
-Pour appliquer la contrainte de $(D,G)$-consistance :
-1. \textbf{Génération} : Une recherche en faisceau (beam search) sur $D$ guidée par la similarité des embeddings génère de longs chemins candidats.
-2. \textbf{Filtrage} : Une fenêtre glissante avec un algorithme Union-Find incrémental extrait le plus long sous-chemin contigu qui induit un sous-graphe connexe dans $G$.
+Étant donné que la condition de connectivité dans $G$ s'applique à l'ensemble \emph{final} des sommets du chemin (qui peut induire un arbre, et non forcément un chemin séquentiel dans $G$), il est impossible de garantir la connexité de manière incrémentale.
+Nous utilisons donc un décodeur en deux étapes :
+
+\begin{enumerate}
+    \item \textbf{Étape A (Génération)} : Recherche en faisceau (beam search, largeur 4) sur les successeurs de $D$, en masquant les nœuds déjà visités. La probabilité de sélection est guidée par la similarité des embeddings appris :
+    $$P_{skew}(v\mid u,\mathcal{U}) = \frac{\mathbf{1}[(u,v)\in A]\cdot\mathbf{1}[v\notin\mathcal{U}]\cdot \exp(\mathrm{sim}(u,v)/\tau)}{\sum_{v'\in N^+(u)\setminus\mathcal{U}}\exp(\mathrm{sim}(u,v')/\tau)}$$
+    \item \textbf{Étape B (Filtrage de Connexité)} : Sur le chemin candidat (de longueur $L$), nous appliquons une fenêtre glissante. Pour chaque sous-intervalle contigu, nous vérifions si l'ensemble des sommets induit un graphe connexe dans $G$ en utilisant un algorithme Union-Find incrémental en $O(L^2\cdot\alpha(L))$. Nous extrayons ainsi le plus long sous-chemin $(D,G)$-consistant.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/06_graph_topology_paths.png}
+\caption{Visualisation de la topologie. À gauche : le chemin candidat généré dans le graphe $D$. À droite : le sous-graphe induit dans le graphe $G$, illustrant la connectivité finale.}
+\label{fig:topology}
+\end{figure}
 
 \section{Résultats Expérimentaux}
-Nous avons évalué notre approche sur un ensemble de données d'instances synthétiques (graphes d'Erdős-Rényi modélisant des réseaux biologiques). Comparé au solveur exact ILP2, notre méthode Skew-GRAM est extrêmement rapide (0,41s en moyenne contre 28s), offrant une accélération de 68x. Bien que le solveur exact garantisse la longueur optimale, notre méthode fournit une heuristique scalable qui surpasse les baselines GNN traditionnelles en vitesse d'inférence.
+Nous avons évalué notre approche sur un ensemble d'instances synthétiques d'Erdős-Rényi (environ 100 nœuds par instance), qui modélisent les caractéristiques des réseaux biologiques. 
+Nous avons comparé les longueurs de chemin et les temps d'exécution de notre méthode Skew-GRAM avec le solveur exact ILP2.
 
-\section{Conclusion}
-En traitant les chemins biologiques comme des séquences linguistiques et en tirant parti des techniques NLP, nous introduisons une heuristique rapide et scalable pour le problème One-to-one SkewGRAM. Les travaux futurs exploreront l'entraînement conjoint sur les deux graphes pour améliorer davantage la longueur des chemins.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/03_evaluation_comparison.png}
+\caption{À gauche : Comparaison des longueurs de chemins par instance (ILP2 vs Skew-GRAM). À droite : Compromis qualité/temps, démontrant la grande rapidité de Skew-GRAM.}
+\label{fig:results}
+\end{figure}
+
+Les résultats démontrent que la méthode Skew-GRAM est \textbf{extrêmement rapide}. Alors que ILP2 prend en moyenne 28 secondes par instance, Skew-GRAM génère le chemin en 0.41 seconde, soit une \textbf{accélération de plus de 68x}.
+En termes de qualité, le chemin généré lors de l'étape A possède une longueur moyenne de 6.45. Après le filtrage sévère de l'étape B pour garantir la $(D,G)$-consistance, la longueur moyenne est de 3.42 (contre 9.97 pour la solution optimale ILP2).
+Bien que la méthode n'atteigne pas encore la longueur optimale exacte, elle génère des chemins valides (contrairement aux méthodes de Machine Learning traditionnelles comme Random Forest) et de longueur très supérieure au 1.2 nœuds obtenus par des décodeurs GNN séquentiels stricts.
+
+\section{Conclusion et Travaux Futurs}
+En traitant les réseaux métaboliques et génomiques comme des séquences linguistiques et en exploitant le modèle Skip-Gram avec échantillonnage négatif structurel, nous avons introduit une heuristique très rapide pour le problème NP-difficile One-to-one SkewGRAM. Cette méthode se positionne comme un excellent filtre de pré-traitement (warm-start) pour les méthodes exactes, surclassant les GNN traditionnels en termes de vitesse d'inférence.
+
+Les travaux futurs viseront à intégrer directement la connectivité du graphe $G$ lors de la génération (Étape A) via un entraînement conjoint (Joint Embeddings), afin de réduire l'écart de longueur de chemin avec les solveurs exacts.
 
 \section*{Remerciements}
-Nous exprimons notre gratitude à nos superviseurs, le Dr. Mohamed Lemine Ahmed Sidi et le Dr. Hafedh Mohamed Babou, pour leurs conseils.
+Nous remercions chaleureusement nos superviseurs, le Dr. Mohamed Lemine Ahmed Sidi et le Dr. Hafedh Mohamed Babou, pour leurs orientations scientifiques tout au long de ce projet.
+
+\begin{thebibliography}{10}
+
+\bibitem{mikolov}
+Mikolov, T., Sutskever, I., Chen, K., Corrado, G., Dean, J.:
+Distributed Representations of Words and Phrases and their Compositionality.
+NeurIPS (2013)
+
+\bibitem{deepwalk}
+Perozzi, B., Al-Rfou, R., Skiena, S.:
+DeepWalk: Online Learning of Social Representations.
+KDD (2014)
+
+\bibitem{node2vec}
+Grover, A., Leskovec, J.:
+node2vec: Scalable Feature Learning for Networks.
+KDD (2016)
+
+\bibitem{sidi}
+Ahmed Sidi, M. L., Babou, H. M., Dhib, C., et al.:
+Constraint programming approaches for finding conserved metabolic and genomic patterns.
+Computers \& Operations Research (2025)
+
+\end{thebibliography}
 
 \end{document}

@@ -2,6 +2,7 @@
 \usepackage{graphicx}
 \usepackage{amsmath,amssymb}
 \usepackage{hyperref}
+\usepackage{booktabs}
 
 \begin{document}
 
@@ -26,29 +27,114 @@ The One-to-one SkewGRAM problem is a complex combinatorial optimization challeng
 \end{abstract}
 
 \section{Introduction}
-Artificial Intelligence and its applications are increasingly relevant to bioinformatics. A key challenge is the integration of multiple biological networks to extract meaningful functional modules. The One-to-one SkewGRAM problem addresses this by seeking paths that are consistent across two different graphs: a directed graph (causal processes) and an undirected graph (functional associations).
+Artificial Intelligence and its applications are increasingly relevant to bioinformatics, particularly in developing countries where these technologies offer the potential for rapid transformation. A key challenge in this field is the integration of multiple biological networks to extract meaningful functional modules. For instance, cellular metabolism can be modeled as a directed graph where biochemical reactions form arcs between metabolites. Simultaneously, physical interactions between genes or proteins can be modeled using undirected graphs.
 
-Recent advances have applied Graph Neural Networks (GNNs) to this problem, yet these methods remain slow and complex. In this work, we propose to improve upon the GNN approach with a faster NLP-based method, adapting the Skip-Gram model (popularized by word2vec and DeepWalk) to solve this specific combinatorial constraints problem.
+The One-to-one SkewGRAM problem addresses the integration of these two levels of information by seeking paths that are consistent across two different graphs: a directed graph (causal processes) and an undirected graph (functional associations). Identifying such paths allows for the discovery of functional modules conserved throughout evolution.
+
+Recent advances have applied Graph Neural Networks (GNNs) to this problem, but these methods remain limited either by the short length of the paths found (averaging 1.2 nodes) or by the need for heavy post-processing. In this work, we propose to improve upon the GNN approach with a faster NLP-based (Natural Language Processing) method. By adapting the Skip-Gram model (popularized by word2vec and DeepWalk), we tackle this specific combinatorial constraints problem.
 
 \section{Problem Formulation}
-Let $D = (V, A)$ be a Directed Acyclic Graph (DAG) and $G = (V, E)$ be an undirected graph. A path $P = (v_1, \dots, v_k)$ in $D$ is said to be $(D,G)$-consistent if the subgraph of $G$ induced by $\{v_1, \dots, v_k\}$ is connected. Finding the longest such path is NP-hard.
+The One-to-one SkewGRAM problem can be formally defined as follows:
+
+Let $V = \{v_1, v_2, \dots, v_n\}$ be a set of nodes (biological entities).
+\begin{itemize}
+    \item $D = (V, A)$ is a Directed Acyclic Graph (DAG) representing directional biological processes.
+    \item $G = (V, E)$ is an undirected graph encoding functional interactions.
+\end{itemize}
+
+The objective is to find a path $P = (v_1, \dots, v_k)$ in $D$ such that:
+\begin{enumerate}
+    \item \textbf{Path condition}: $(v_i, v_{i+1}) \in A$ for all $i$, meaning $P$ is a valid directed path in $D$.
+    \item \textbf{Connectivity condition}: The subgraph of $G$ induced by the vertices $\{v_1, \dots, v_k\}$ is connected.
+\end{enumerate}
+
+Such a path is called \textbf{(D,G)-consistent}. Finding the longest (D,G)-consistent path is an NP-hard problem. Exact solvers like Integer Linear Programming (ILP) provide the optimal length but suffer from exponential execution times on large graphs.
 
 \section{Proposed NLP Approach: Skew-GRAM}
-Our approach translates graph nodes into "words" and random walks on $D$ into "sentences". 
-\subsection{Node Embeddings}
-We learn continuous representations of nodes by optimizing a Skip-Gram objective. Unlike standard word2vec, we use structural negative sampling, drawing negative examples from nodes that are not successors in $D$.
+Our approach is inspired by the successes of NLP in representation learning, translating graph nodes into "words" and random walks on $D$ into "sentences".
+
+\subsection{Node Embeddings and Skip-Gram}
+Similar to DeepWalk or node2vec, we generate sequences of nodes via random walks on the directed graph $D$. We then learn embedding matrices $\mathbf{V}_{in}, \mathbf{V}_{out} \in \mathbb{R}^{N\times d}$ ($d=32$). 
+However, unlike the standard Skip-Gram, we introduce \textbf{structural negative sampling}.
+
+The loss function is optimized as follows:
+\begin{equation}
+\mathcal{L}(c,o,n_{1:K}) = -\log\sigma(\mathbf{v}_{in,c}^\top \mathbf{v}_{out,o}) - \sum_{k=1}^K \log\sigma(-\mathbf{v}_{in,c}^\top \mathbf{v}_{out,n_k})
+\end{equation}
+
+The structural negatives $n_k$ are drawn from the non-successors of the target node $c$ in $D$ ($P_{struct}(n\mid c) \propto \mathbf{1}[(c,n)\notin A]$). This forces the latent space to strongly penalize impossible transitions in the causal graph, thereby rigorously capturing the structure of the DAG.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{figures/04_pca_embeddings.png}
+\caption{PCA projection of node embeddings generated by Skew-GRAM. The latent structure captures the topological order of the directed graph $D$.}
+\label{fig:pca}
+\end{figure}
+
+We also apply a sub-sampling of "hubs" (highly connected nodes) to prevent very dense paths from dominating the transition probabilities.
+
 \subsection{Two-Stage Decoding}
-To enforce the $(D,G)$-consistency constraint:
-1. \textbf{Generation}: A beam search on $D$ guided by embedding similarity generates long candidate paths.
-2. \textbf{Filtering}: A sliding window with an incremental Union-Find algorithm extracts the longest contiguous sub-path that induces a connected subgraph in $G$.
+Since the connectivity condition in $G$ applies to the \emph{final} set of vertices in the path (which may induce a tree, and not necessarily a sequential path in $G$), it is impossible to guarantee connectivity incrementally.
+We therefore use a two-stage decoder:
+
+\begin{enumerate}
+    \item \textbf{Stage A (Generation)}: Beam search (width 4) on the successors of $D$, masking already visited nodes. The selection probability is guided by the similarity of the learned embeddings:
+    $$P_{skew}(v\mid u,\mathcal{U}) = \frac{\mathbf{1}[(u,v)\in A]\cdot\mathbf{1}[v\notin\mathcal{U}]\cdot \exp(\mathrm{sim}(u,v)/\tau)}{\sum_{v'\in N^+(u)\setminus\mathcal{U}}\exp(\mathrm{sim}(u,v')/\tau)}$$
+    \item \textbf{Stage B (Connectivity Filtering)}: On the candidate path (of length $L$), we apply a sliding window. For each contiguous sub-interval, we verify if the set of vertices induces a connected graph in $G$ using an incremental Union-Find algorithm in $O(L^2\cdot\alpha(L))$. We thus extract the longest $(D,G)$-consistent sub-path.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/06_graph_topology_paths.png}
+\caption{Topology visualization. Left: the candidate path generated in graph $D$. Right: the induced subgraph in graph $G$, illustrating the final connectivity.}
+\label{fig:topology}
+\end{figure}
 
 \section{Experimental Results}
-We evaluated our approach on a dataset of synthetic instances (Erdős-Rényi graphs modeling biological networks). Compared to the ILP2 exact solver, our Skew-GRAM method is extremely fast (average 0.41s vs 28s), yielding a 68x speedup. While the exact solver guarantees the optimal length, our method provides a scalable heuristic that outperforms traditional GNN baselines in inference speed.
+We evaluated our approach on a set of synthetic Erdős-Rényi instances (around 100 nodes per instance), which model the characteristics of biological networks. 
+We compared the path lengths and execution times of our Skew-GRAM method with the ILP2 exact solver.
 
-\section{Conclusion}
-By treating biological paths as linguistic sequences and leveraging NLP techniques, we introduce a fast and scalable heuristic for the One-to-one SkewGRAM problem. Future work will explore joint training on both graphs to further improve path length.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/03_evaluation_comparison.png}
+\caption{Left: Comparison of path lengths per instance (ILP2 vs Skew-GRAM). Right: Quality/time trade-off, demonstrating the high speed of Skew-GRAM.}
+\label{fig:results}
+\end{figure}
+
+The results demonstrate that the Skew-GRAM method is \textbf{extremely fast}. While ILP2 takes an average of 28 seconds per instance, Skew-GRAM generates the path in 0.41 seconds, representing an \textbf{acceleration of over 68x}.
+In terms of quality, the path generated during Stage A has an average length of 6.45. After the strict filtering of Stage B to ensure $(D,G)$-consistency, the average length is 3.42 (compared to 9.97 for the optimal ILP2 solution).
+Although the method does not yet achieve the exact optimal length, it generates valid paths (unlike traditional Machine Learning methods such as Random Forest) and of a length far superior to the 1.2 nodes obtained by strict sequential GNN decoders.
+
+\section{Conclusion and Future Work}
+By treating metabolic and genomic networks as linguistic sequences and leveraging the Skip-Gram model with structural negative sampling, we have introduced a very fast heuristic for the NP-hard One-to-one SkewGRAM problem. This method positions itself as an excellent pre-processing filter (warm-start) for exact methods, outperforming traditional GNNs in terms of inference speed.
+
+Future work will aim to directly integrate the connectivity of graph $G$ during the generation (Stage A) via Joint Embeddings, in order to reduce the path length gap with exact solvers.
 
 \section*{Acknowledgments}
-We extend our gratitude to our supervisors, Dr. Mohamed Lemine Ahmed Sidi and Dr. Hafedh Mohamed Babou, for their guidance.
+We warmly thank our supervisors, Dr. Mohamed Lemine Ahmed Sidi and Dr. Hafedh Mohamed Babou, for their scientific guidance throughout this project.
+
+\begin{thebibliography}{10}
+
+\bibitem{mikolov}
+Mikolov, T., Sutskever, I., Chen, K., Corrado, G., Dean, J.:
+Distributed Representations of Words and Phrases and their Compositionality.
+NeurIPS (2013)
+
+\bibitem{deepwalk}
+Perozzi, B., Al-Rfou, R., Skiena, S.:
+DeepWalk: Online Learning of Social Representations.
+KDD (2014)
+
+\bibitem{node2vec}
+Grover, A., Leskovec, J.:
+node2vec: Scalable Feature Learning for Networks.
+KDD (2016)
+
+\bibitem{sidi}
+Ahmed Sidi, M. L., Babou, H. M., Dhib, C., et al.:
+Constraint programming approaches for finding conserved metabolic and genomic patterns.
+Computers \& Operations Research (2025)
+
+\end{thebibliography}
 
 \end{document}
