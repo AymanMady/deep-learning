@@ -51,10 +51,10 @@ Nous avons conçu un algorithme rigoureux en 3 phases garantissant la consistanc
 |---|---|---|---|
 | GNN DL2 (état de l'art) | ~1.2 nœuds | — | — |
 | **ILP2** (solveur exact, référence) | **9.97 nœuds** | **28 secondes** | référence |
-| **🥇 G-First Guidé (notre méthode)** | **6.97 nœuds** | **0.27 secondes** | **~100x plus rapide** |
+| **🥇 G-First Guidé (notre méthode)** | **7.03 nœuds** | **0.79 secondes** | **~36x plus rapide** |
 
 - ✅ **Qualité exceptionnelle pour une heuristique :** Avec ~7 nœuds en moyenne, G-First Guidé surpasse largement l'état de l'art GNN (1.2 nœuds) et se rapproche de l'optimum absolu (9.97) sans utiliser de solveur lourd.
-- ✅ **Accélération fulgurante :** L'algorithme résout l'instance en seulement **0.27 secondes**, le rendant 100 fois plus rapide qu'ILP2, ce qui permet un passage à l'échelle sur des génomes entiers.
+- ✅ **Accélération fulgurante :** L'algorithme résout l'instance en seulement **0.79 secondes**, le rendant près de 36 fois plus rapide qu'ILP2, ce qui permet un passage à l'échelle sur des génomes entiers.
 
 ---
 

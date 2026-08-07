@@ -29,7 +29,7 @@ Institut Supérieur du Numérique (SupNum), Nouakchott, Mauritanie\\
 \maketitle
 
 \begin{abstract}
-Le problème One-to-one SkewGRAM est un défi d'optimisation combinatoire NP-difficile issu de la bio-informatique. Il vise à trouver le plus long chemin dans un graphe orienté acyclique $D$ tel que ses sommets induisent un sous-graphe connexe dans un graphe non-orienté $G$. Les méthodes exactes (ILP) sont exponentiellement lentes, et les heuristiques basées sur les Réseaux de Neurones sur Graphes (GNN) génèrent des chemins trivialement courts ($\approx$1.2 nœuds). Nous exploitons une propriété mathématique fondamentale : tout chemin (D,G)-consistant est nécessairement contenu dans une composante connexe de $G$. Nous proposons \textbf{G-First Guidé}, un algorithme en trois phases combinant : 1) La décomposition de l'espace de recherche via les composantes de $G$, 2) Une exploration stochastique par marches aléatoires biaisées favorisant la compacité topologique dans $G$, et 3) Une validation exacte par Union-Find glissant. Notre approche résout l'instance en \textbf{0.27 secondes} en moyenne (soit $\approx \mathbf{100\times}$ plus rapide que le solveur exact ILP2), tout en découvrant des chemins de \textbf{6.97 nœuds} de moyenne, surpassant de très loin l'état de l'art GNN et offrant un compromis qualité-temps exceptionnel pour le passage à l'échelle génomique.
+Le problème One-to-one SkewGRAM est un défi d'optimisation combinatoire NP-difficile issu de la bio-informatique. Il vise à trouver le plus long chemin dans un graphe orienté acyclique $D$ tel que ses sommets induisent un sous-graphe connexe dans un graphe non-orienté $G$. Les méthodes exactes (ILP) sont exponentiellement lentes, et les heuristiques basées sur les Réseaux de Neurones sur Graphes (GNN) génèrent des chemins trivialement courts ($\approx$1.2 nœuds). Nous exploitons une propriété mathématique fondamentale : tout chemin (D,G)-consistant est nécessairement contenu dans une composante connexe de $G$. Nous proposons \textbf{G-First Guidé}, un algorithme en trois phases combinant : 1) La décomposition de l'espace de recherche via les composantes de $G$, 2) Une exploration stochastique par marches aléatoires biaisées favorisant la compacité topologique dans $G$, et 3) Une validation exacte par Union-Find glissant. Notre approche résout l'instance en \textbf{0.79 secondes} en moyenne (soit $\approx \mathbf{36\times}$ plus rapide que le solveur exact ILP2), tout en découvrant des chemins de \textbf{7.03 nœuds} de moyenne, surpassant de très loin l'état de l'art GNN et offrant un compromis qualité-temps exceptionnel pour le passage à l'échelle génomique.
 \keywords{Optimisation Combinatoire \and Bio-informatique \and Algorithmes sur Graphes \and Marches Aléatoires \and Composantes Connexes \and Union-Find.}
 \end{abstract}
 
@@ -49,7 +49,7 @@ Les contributions de cet article sont :
 \begin{enumerate}
     \item Une formalisation de la décomposabilité du problème via les composantes de $G$.
     \item L'introduction de \textit{G-First Guidé}, une heuristique en 3 phases (Décomposition, Marches Aléatoires Guidées, Validation Union-Find).
-    \item Une validation empirique démontrant une accélération de $\mathbf{100\times}$ par rapport à ILP2, avec des chemins moyens de près de 7 nœuds, balayant les limites des GNNs actuels.
+    \item Une validation empirique démontrant une accélération de $\mathbf{36\times}$ par rapport à ILP2, avec des chemins moyens de 7 nœuds, balayant les limites des GNNs actuels.
 \end{enumerate}
 
 \section{Formulation du Problème et Propriété Mathématique}
@@ -109,15 +109,15 @@ Même avec le guidage, la génération peut inclure des "sauts" illégaux dans $
 \midrule
 GNN DL2 \cite{sidi} (état de l'art IA) & $\approx 1.2$ nœuds & N/A & — \\
 ILP2 \cite{sidi} (Solveur exact) & $9.97$ nœuds & $28.0$ s & référence \\
-\textbf{G-First Guidé (notre méthode)} & $\mathbf{6.97}$ \textbf{nœuds} & $\mathbf{0.27}$ \textbf{s} & $\mathbf{\sim 100\times}$ \\
+\textbf{G-First Guidé (notre méthode)} & $\mathbf{7.03}$ \textbf{nœuds} & $\mathbf{0.79}$ \textbf{s} & $\mathbf{\sim 36\times}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Testé sur 39 réseaux d'Erdős-Rényi (100 nœuds), G-First Guidé extrait des modules fonctionnels hautement pertinents de \textbf{6.97 nœuds} en moyenne. Là où l'état de l'art par Deep Learning échoue (1.2 nœuds), notre combinaison de décomposition mathématique et d'exploration biaisée s'approche de l'optimum absolu (9.97). Surtout, le temps d'inférence chute de 28 secondes à \textbf{0.27 secondes}, rendant cette approche viable pour l'analyse de réseaux à l'échelle du génome.
+Testé sur 39 réseaux d'Erdős-Rényi (100 nœuds), G-First Guidé extrait des modules fonctionnels hautement pertinents de \textbf{7.03 nœuds} en moyenne. Là où l'état de l'art par Deep Learning échoue (1.2 nœuds), notre combinaison de décomposition mathématique et d'exploration biaisée s'approche de l'optimum absolu (9.97). Surtout, le temps d'inférence chute de 28 secondes à \textbf{0.79 secondes}, rendant cette approche viable pour l'analyse de réseaux à l'échelle du génome.
 
 \section{Conclusion}
-Le problème One-to-one SkewGRAM illustre la complexité d'aligner la causalité et la fonction en biologie. En injectant la propriété mathématique de décomposabilité directement dans un moteur de marches aléatoires biaisées (G-First Guidé), nous avons développé une heuristique 100 fois plus rapide que les méthodes exactes, générant des chemins biologiques longs et pertinents, surpassant largement les approches neuronales de bout-en-bout aveugles.
+Le problème One-to-one SkewGRAM illustre la complexité d'aligner la causalité et la fonction en biologie. En injectant la propriété mathématique de décomposabilité directement dans un moteur de marches aléatoires biaisées (G-First Guidé), nous avons développé une heuristique près de 36 fois plus rapide que les méthodes exactes, générant des chemins biologiques longs et pertinents, surpassant largement les approches neuronales de bout-en-bout aveugles.
 
 \begin{thebibliography}{10}
 

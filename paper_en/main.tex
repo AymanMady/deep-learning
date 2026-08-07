@@ -28,7 +28,7 @@ Institut Supérieur du Numérique (SupNum), Nouakchott, Mauritania\\
 \maketitle
 
 \begin{abstract}
-The One-to-one SkewGRAM problem is an NP-hard combinatorial optimization challenge from bioinformatics. It aims to find the longest path in a directed acyclic graph $D$ such that its vertices induce a connected subgraph in an undirected graph $G$. Exact methods (ILP) are exponentially slow, and Graph Neural Network (GNN) heuristics generate trivially short paths ($\approx$1.2 nodes). We exploit a fundamental mathematical property: any (D,G)-consistent path is necessarily contained within a connected component of $G$. We propose \textbf{Guided G-First}, a three-phase algorithm combining: 1) Decomposition of the search space via $G$'s components, 2) Stochastic exploration through biased random walks favoring topological compactness in $G$, and 3) Exact validation via sliding-window Union-Find. Our approach solves instances in \textbf{0.27 seconds} on average (i.e., $\approx \mathbf{100\times}$ faster than the exact ILP2 solver), while discovering paths of \textbf{6.97 nodes} on average, vastly outperforming the GNN state-of-the-art and offering an exceptional quality-time tradeoff for genomic-scale scaling.
+The One-to-one SkewGRAM problem is an NP-hard combinatorial optimization challenge from bioinformatics. It aims to find the longest path in a directed acyclic graph $D$ such that its vertices induce a connected subgraph in an undirected graph $G$. Exact methods (ILP) are exponentially slow, and Graph Neural Network (GNN) heuristics generate trivially short paths ($\approx$1.2 nodes). We exploit a fundamental mathematical property: any (D,G)-consistent path is necessarily contained within a connected component of $G$. We propose \textbf{Guided G-First}, a three-phase algorithm combining: 1) Decomposition of the search space via $G$'s components, 2) Stochastic exploration through biased random walks favoring topological compactness in $G$, and 3) Exact validation via sliding-window Union-Find. Our approach solves instances in \textbf{0.79 seconds} on average (i.e., $\approx \mathbf{36\times}$ faster than the exact ILP2 solver), while discovering paths of \textbf{7.03 nodes} on average, vastly outperforming the GNN state-of-the-art and offering an exceptional quality-time tradeoff for genomic-scale scaling.
 \keywords{Combinatorial Optimization \and Bioinformatics \and Graph Algorithms \and Random Walks \and Connected Components \and Union-Find.}
 \end{abstract}
 
@@ -48,7 +48,7 @@ The contributions of this paper are:
 \begin{enumerate}
     \item A formalization of the problem's decomposability via the components of $G$.
     \item The introduction of \textit{Guided G-First}, a 3-phase heuristic (Decomposition, Guided Random Walks, Union-Find Validation).
-    \item An empirical validation demonstrating a $\mathbf{100\times}$ speedup over ILP2, with average paths of nearly 7 nodes, shattering the limits of current GNNs.
+    \item An empirical validation demonstrating a $\mathbf{36\times}$ speedup over ILP2, with average paths of over 7 nodes, shattering the limits of current GNNs.
 \end{enumerate}
 
 \section{Problem Formulation and Mathematical Property}
@@ -108,15 +108,15 @@ Even with guidance, generation can include illegal "jumps" in $G$. For each gene
 \midrule
 GNN DL2 \cite{sidi} (AI state-of-the-art) & $\approx 1.2$ nodes & N/A & — \\
 ILP2 \cite{sidi} (Exact solver) & $9.97$ nodes & $28.0$ s & reference \\
-\textbf{Guided G-First (ours)} & $\mathbf{6.97}$ \textbf{nodes} & $\mathbf{0.27}$ \textbf{s} & $\mathbf{\sim 100\times}$ \\
+\textbf{Guided G-First (ours)} & $\mathbf{7.03}$ \textbf{nodes} & $\mathbf{0.79}$ \textbf{s} & $\mathbf{\sim 36\times}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Tested on 39 Erdős-Rényi networks (100 nodes), Guided G-First extracts highly relevant functional modules of \textbf{6.97 nodes} on average. Where the Deep Learning state-of-the-art fails (1.2 nodes), our combination of mathematical decomposition and biased exploration approaches the absolute optimum (9.97). Crucially, inference time drops from 28 seconds to \textbf{0.27 seconds}, making this approach viable for genome-scale network analysis.
+Tested on 39 Erdős-Rényi networks (100 nodes), Guided G-First extracts highly relevant functional modules of \textbf{7.03 nodes} on average. Where the Deep Learning state-of-the-art fails (1.2 nodes), our combination of mathematical decomposition and biased exploration approaches the absolute optimum (9.97). Crucially, inference time drops from 28 seconds to \textbf{0.79 seconds}, making this approach viable for genome-scale network analysis.
 
 \section{Conclusion}
-The One-to-one SkewGRAM problem illustrates the complexity of aligning causality and function in biology. By injecting the mathematical property of decomposability directly into a biased random walk engine (Guided G-First), we developed a heuristic 100 times faster than exact methods, generating long and relevant biological paths, vastly outperforming blind end-to-end neural approaches.
+The One-to-one SkewGRAM problem illustrates the complexity of aligning causality and function in biology. By injecting the mathematical property of decomposability directly into a biased random walk engine (Guided G-First), we developed a heuristic nearly 36 times faster than exact methods, generating long and relevant biological paths, vastly outperforming blind end-to-end neural approaches.
 
 \begin{thebibliography}{10}
 
