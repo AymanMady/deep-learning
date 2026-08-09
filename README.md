@@ -1,4 +1,4 @@
-# One-to-One SkewGRAM : Optimisation Combinatoire par Décomposition sur Graphes
+# One-to-One SkewGRAM : Optimisation Combinatoire par Embeddings de Nœuds et Décodage Guidé
 
 **Institut Supérieur du Numérique (SupNum), Nouakchott, Mauritanie**  
 **Équipe :** Bechir Mady, Abderahmane Abderrahmane, El Moustapha Mohamed El Moustapha, Mohamedou Yahya Cheikh Mohamed Vall  
@@ -29,32 +29,34 @@ Un chemin $P = (v_1, v_2, \dots, v_k)$ dans $D$ est dit **(D,G)-consistant** si 
 
 ---
 
-## 🚀 Notre Contribution : Algorithme G-First Guidé (3 Phases)
+## 🚀 Notre Contribution : One-to-One Skew-GRAM
 
 Les travaux antérieurs (GNN, ILP2) montrent des limites sévères :
 - **ILP2** (solveur exact) : trouve la solution optimale mais prend **28 secondes** par instance de 100 nœuds.
 - **GNN (DL2)** : rapide mais trouve des chemins de seulement **1.2 nœuds** en moyenne.
 
-Notre approche, **G-First Guidé**, exploite une propriété mathématique fondamentale : *tout chemin (D,G)-consistant est nécessairement contenu dans une même composante connexe de G.*
+Notre approche, **One-to-One Skew-GRAM**, transpose le principe du Skip-Gram (Mikolov et al., 2013), via le paradigme DeepWalk/node2vec, à ce problème d'optimisation combinatoire sur deux graphes couplés. C'est la **seule** méthode utilisée : les embeddings sont entraînés uniquement sur $D$, et la contrainte de $G$ n'intervient qu'au décodage.
 
-Nous avons conçu un algorithme rigoureux en 3 phases garantissant la consistance :
+Le pipeline complet :
 
-1. **Décomposition (Réduction de l'espace) :** Décomposition de G en composantes connexes via Union-Find. Cela permet de restreindre la recherche dans le DAG $D$ uniquement aux nœuds d'une même composante de $G$.
-2. **Exploration Biaisée :** Génération massive (50 000 marches) de marches aléatoires dans le sous-DAG $D_C$. Ces marches sont guidées : la probabilité de choisir un prochain nœud est fortement augmentée si ce nœud est connecté (dans $G$) au chemin en cours de construction. Cela garantit un chemin "compact" fonctionnellement.
-3. **Validation Exacte (Étape B) :** Extraction du plus long sous-chemin contigu dont les nœuds induisent un sous-graphe strictement connexe dans $G$ (via Union-Find incrémental à fenêtre glissante).
+1. **Marches aléatoires sur $D$ + sous-échantillonnage des hubs :** génération de marches suivant les arcs sortants de $D$, avec réduction du poids des nœuds de haut degré (formule word2vec).
+2. **Entraînement des embeddings Skew-GRAM :** modèle Negative Sampling avec **négatifs structurels** (tirés parmi les non-successeurs dans $D$, plutôt qu'une distribution unigramme classique).
+3. **Décodage guidé conscient du DAG (Étape A) :** un décodeur naïf (similarité d'embeddings seule) s'enlise dans les culs-de-sac de $D$. Nous ajoutons donc une **anticipation exacte par programmation dynamique** (plus long chemin restant dans le DAG, $O(V+E)$), combinée à la similarité d'embeddings et à un bonus de connexité à $G$.
+4. **Extraction exacte du sous-chemin (D,G)-consistant (Étape B) :** la connexité dans $G$ ne peut pas être vérifiée incrémentalement (constat empirique sur les solutions ILP2) — on extrait donc, par fenêtre glissante + Union-Find incrémental, le plus long sous-intervalle contigu strictement connexe dans $G$.
 
 ---
 
-## 📊 Résultats Expérimentaux (sur 39 instances, 100 nœuds)
+## 📊 Résultats Expérimentaux (sur 38 instances, 100 nœuds, dont 36 avec optimum ILP2 connu)
 
 | Méthode | Longueur moy. | Temps moy. | vs ILP2 (Vitesse) |
 |---|---|---|---|
 | GNN DL2 (état de l'art) | ~1.2 nœuds | — | — |
 | **ILP2** (solveur exact, référence) | **9.97 nœuds** | **28 secondes** | référence |
-| **🥇 G-First Guidé (notre méthode)** | **7.03 nœuds** | **0.79 secondes** | **~36x plus rapide** |
+| **🥇 One-to-One Skew-GRAM (notre méthode)** | **7.13 nœuds** | **2.7 secondes** | **~10x plus rapide** |
 
-- ✅ **Qualité exceptionnelle pour une heuristique :** Avec ~7 nœuds en moyenne, G-First Guidé surpasse largement l'état de l'art GNN (1.2 nœuds) et se rapproche de l'optimum absolu (9.97) sans utiliser de solveur lourd.
-- ✅ **Accélération fulgurante :** L'algorithme résout l'instance en seulement **0.79 secondes**, le rendant près de 36 fois plus rapide qu'ILP2, ce qui permet un passage à l'échelle sur des génomes entiers.
+- ✅ **Qualité solide pour une heuristique :** ~7.1 nœuds en moyenne (écart moyen de **-30%** vs l'optimum ILP2), égale ou dépasse ILP2 sur **13 des 36** instances avec optimum connu — très largement au-dessus de l'état de l'art GNN (1.2 nœuds).
+- ✅ **Accélération significative :** ~2.7 secondes par instance en moyenne, soit **~10x plus rapide** qu'ILP2.
+- 🔍 **Diagnostic clé :** l'anticipation DAG (étape A) est le facteur dominant de la qualité — sans elle (décodage par similarité d'embeddings seule), la longueur moyenne retombe à 5.87 nœuds. Les instances les plus faibles restent sensibles à la variance de l'échantillonnage stochastique (graine fixe) plutôt qu'à une limite structurelle de la méthode.
 
 ---
 
