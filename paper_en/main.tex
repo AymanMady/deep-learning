@@ -62,7 +62,14 @@ Formally, let $V = \{v_1, \dots, v_n\}$ be a set of nodes (biological entities).
 \textbf{Objective:} Find a path $P = (p_1, \dots, p_k)$ maximizing $k$, subject to:
 1. $\forall i, (p_i, p_{i+1}) \in A$ (valid in $D$).
 2. The induced subgraph $G[\{p_1, \dots, p_k\}]$ is connected.
-Such a path is \textbf{(D,G)-consistent}. 
+Such a path is \textbf{(D,G)-consistent}.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{09_problem_illustration.png}
+\caption{Toy example on 7 nodes. The same path $(p_1,\dots,p_5)$ must simultaneously be a valid directed path in $D$ (left) and induce a connected subgraph in $G$ (right).}
+\label{fig:problem}
+\end{figure}
 
 \subsection{Connectivity Cannot Be Checked Incrementally}
 \label{sec:incremental}
@@ -72,7 +79,14 @@ An empirical audit of the ILP2 optimal solutions shows that the prefix of nodes 
 \section{Methodology: One-to-one Skew-GRAM}
 \label{sec:method}
 
-Our approach has two components: (1) an embedding model trained once per instance on random walks over $D$, and (2) a guided decoder that uses these embeddings, together with an exact DAG lookahead and a $G$-connectivity signal, to generate and validate (D,G)-consistent paths.
+Our approach has two components: (1) an embedding model trained once per instance on random walks over $D$, and (2) a guided decoder that uses these embeddings, together with an exact DAG lookahead and a $G$-connectivity signal, to generate and validate (D,G)-consistent paths (Figure \ref{fig:pipeline}).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{10_pipeline_diagram.png}
+\caption{The four-phase One-to-one Skew-GRAM pipeline, run once per instance.}
+\label{fig:pipeline}
+\end{figure}
 
 \subsection{Phase 1: Random Walks and Hub Sub-sampling on $D$}
 Random walks (DeepWalk-style) follow only the \emph{outgoing arcs of $D$}, since the final path must be valid in $D$; the search space is therefore structured by $D$, not by $G$. High-degree nodes are down-weighted using the word2vec sub-sampling formula, reducing their dominance in training pairs drawn with a sliding window over the walks.
@@ -110,6 +124,20 @@ ILP2 \cite{sidi} (Exact solver) & $9.97$ nodes & $28.0$ s & reference \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{08_graph_topology_paths.png}
+\caption{On a real 100-node instance: the raw path found in $D$ by Step A (left, red) is longer than the sub-path that is actually connected in $G$ and kept after Step B (right, blue) — illustrating why the exact extraction step is necessary.}
+\label{fig:decode-example}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{05_evaluation_comparison.png}
+\caption{Per-instance path length, One-to-one Skew-GRAM vs.\ ILP2 (left), and the quality/time trade-off across all instances (right, log time scale).}
+\label{fig:comparison}
+\end{figure}
 
 Tested on 38 Erdős-Rényi networks (100 nodes), One-to-one Skew-GRAM extracts functional modules of \textbf{7.13 nodes} on average, a mean gap of $-30\%$ relative to the ILP2 optimum, and it matches or exceeds ILP2 on \textbf{13 of the 36} instances with a known optimum. Where the Deep Learning state-of-the-art fails (1.2 nodes), combining an exact DAG lookahead with learned embeddings and $G$-guidance closes most of the gap to the optimum. Inference time drops from 28 seconds to \textbf{2.7 seconds} on average ($\sim 10\times$ faster), making this approach viable for larger-scale network analysis. Ablating the DAG lookahead (i.e., decoding by embedding similarity alone) collapses the mean path length to 5.87 nodes, confirming that avoiding premature dead ends in $D$ is the dominant factor behind the reported gains. Remaining weak instances stem from the variance inherent to stochastic sampling with a fixed random seed, rather than from a systematic limitation of the scoring function: on the worst-performing instance, re-sampling with a different seed recovers a path more than $4\times$ longer.
 
