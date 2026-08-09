@@ -68,7 +68,7 @@ Un tel chemin est \textbf{(D,G)-consistant}.
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.95\textwidth]{09_problem_illustration.png}
-\caption{Exemple jouet sur 7 nœuds. Le même chemin $(p_1,\dots,p_5)$ doit à la fois être un chemin orienté valide dans $D$ (gauche) et induire un sous-graphe connexe dans $G$ (droite).}
+\caption{Exemple jouet sur 7 nœuds. $D$ et $G$ partagent le même ensemble de nœuds mais ont des topologies par ailleurs indépendantes (arêtes différentes, forme différente). Le même chemin $(p_1,\dots,p_5)$ doit à la fois être un chemin orienté valide dans $D$ (gauche) et induire un sous-graphe connexe dans $G$ (droite), bien que $D$ et $G$ n'aient visuellement rien en commun.}
 \label{fig:problem}
 \end{figure}
 
@@ -126,6 +126,29 @@ ILP2 \cite{sidi} (Solveur exact) & $9.97$ nœuds & $28.0$ s & référence \\
 \end{tabular}
 \end{table}
 
+\begin{table}[htbp]
+\centering
+\caption{Comparaison instance par instance, One-to-one Skew-GRAM vs.\ ILP2, sur 10 instances représentatives de 100 nœuds (du meilleur au pire écart).}
+\label{tab:per-instance}
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Instance} & \textbf{ILP2} & \textbf{Skew-GRAM} & \textbf{Écart} & \textbf{Temps ILP2} & \textbf{Temps Skew-GRAM} \\
+ & (nœuds) & (nœuds) & (\%) & (s) & (s) \\
+\midrule
+100\_121 & 6  & 6  & $0.0\%$   & $19.59$ & $0.69$ \\
+100\_402 & 11 & 11 & $0.0\%$   & $13.16$ & $0.80$ \\
+100\_190 & 11 & 11 & $0.0\%$   & $25.44$ & $0.77$ \\
+100\_197 & 11 & 9  & $-18.2\%$ & $19.73$ & $0.70$ \\
+100\_14  & 12 & 9  & $-25.0\%$ & $8.51$  & $0.77$ \\
+100\_320 & 12 & 8  & $-33.3\%$ & $33.91$ & $0.80$ \\
+100\_128 & 13 & 8  & $-38.5\%$ & $18.44$ & $0.90$ \\
+100\_66  & 16 & 9  & $-43.8\%$ & $9.98$  & $0.97$ \\
+100\_388 & 15 & 8  & $-46.7\%$ & $58.18$ & $0.84$ \\
+100\_527 & 11 & 4  & $-63.6\%$ & $15.83$ & $1.04$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.95\textwidth]{08_graph_topology_paths.png}
@@ -140,7 +163,7 @@ ILP2 \cite{sidi} (Solveur exact) & $9.97$ nœuds & $28.0$ s & référence \\
 \label{fig:comparison}
 \end{figure}
 
-Testé sur 38 réseaux d'Erdős-Rényi (100 nœuds), One-to-one Skew-GRAM extrait des modules fonctionnels de \textbf{7.13 nœuds} en moyenne, soit un écart moyen de $-30\%$ par rapport à l'optimum ILP2, et égale ou dépasse ILP2 sur \textbf{13 des 36} instances disposant d'un optimum connu. Là où l'état de l'art par Deep Learning échoue (1.2 nœuds), la combinaison d'une anticipation exacte sur le DAG, d'embeddings appris et d'un guidage par $G$ referme une grande partie de l'écart à l'optimum. Le temps d'inférence chute de 28 secondes à \textbf{2.7 secondes} en moyenne ($\sim 10\times$ plus rapide), rendant cette approche viable pour l'analyse de réseaux de plus grande échelle. Retirer l'anticipation DAG (c.-à-d. décoder uniquement par similarité d'embeddings) effondre la longueur moyenne à 5.87 nœuds, confirmant qu'éviter les culs-de-sac prématurés dans $D$ est le facteur dominant des gains observés. Les instances les plus faibles restantes s'expliquent par la variance intrinsèque de l'échantillonnage stochastique à graine fixe, plutôt que par une limite systématique de la fonction de score : sur l'instance la moins bonne, un ré-échantillonnage avec une autre graine retrouve un chemin plus de 4 fois plus long.
+Le Tableau \ref{tab:per-instance} détaille 10 instances représentatives, allant d'une correspondance exacte avec ILP2 (par ex. 100\_121, 100\_402, 100\_190) jusqu'à l'écart le plus important observé (100\_527) ; sur chacune de ces instances, One-to-one Skew-GRAM reste un à deux ordres de grandeur plus rapide qu'ILP2. Testé sur 38 réseaux d'Erdős-Rényi (100 nœuds), One-to-one Skew-GRAM extrait des modules fonctionnels de \textbf{7.13 nœuds} en moyenne, soit un écart moyen de $-30\%$ par rapport à l'optimum ILP2, et égale ou dépasse ILP2 sur \textbf{13 des 36} instances disposant d'un optimum connu. Là où l'état de l'art par Deep Learning échoue (1.2 nœuds), la combinaison d'une anticipation exacte sur le DAG, d'embeddings appris et d'un guidage par $G$ referme une grande partie de l'écart à l'optimum. Le temps d'inférence chute de 28 secondes à \textbf{2.7 secondes} en moyenne ($\sim 10\times$ plus rapide), rendant cette approche viable pour l'analyse de réseaux de plus grande échelle. Retirer l'anticipation DAG (c.-à-d. décoder uniquement par similarité d'embeddings) effondre la longueur moyenne à 5.87 nœuds, confirmant qu'éviter les culs-de-sac prématurés dans $D$ est le facteur dominant des gains observés. Les instances les plus faibles restantes s'expliquent par la variance intrinsèque de l'échantillonnage stochastique à graine fixe, plutôt que par une limite systématique de la fonction de score : sur l'instance la moins bonne, un ré-échantillonnage avec une autre graine retrouve un chemin plus de 4 fois plus long.
 
 \section{Conclusion}
 Le problème One-to-one SkewGRAM illustre la complexité d'aligner la causalité et la fonction en biologie. En combinant un embedding de nœuds de type Skip-Gram du graphe causal $D$ avec une anticipation exacte par programmation dynamique et un biais de connexité à $G$ au moment du décodage, nous avons développé une heuristique environ dix fois plus rapide que le solveur exact ILP2, générant des chemins biologiques nettement plus longs et pertinents que les approches neuronales de bout-en-bout aveugles, tout en restant fidèle à la définition exacte de la (D,G)-consistance grâce à une étape de validation exacte et non incrémentale.

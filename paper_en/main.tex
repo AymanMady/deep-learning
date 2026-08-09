@@ -67,7 +67,7 @@ Such a path is \textbf{(D,G)-consistent}.
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.95\textwidth]{09_problem_illustration.png}
-\caption{Toy example on 7 nodes. The same path $(p_1,\dots,p_5)$ must simultaneously be a valid directed path in $D$ (left) and induce a connected subgraph in $G$ (right).}
+\caption{Toy example on 7 nodes. $D$ and $G$ share the same node set but have otherwise unrelated topologies (different edges, different shape). The same path $(p_1,\dots,p_5)$ must simultaneously be a valid directed path in $D$ (left) and induce a connected subgraph in $G$ (right), even though $D$ and $G$ look nothing alike.}
 \label{fig:problem}
 \end{figure}
 
@@ -125,6 +125,29 @@ ILP2 \cite{sidi} (Exact solver) & $9.97$ nodes & $28.0$ s & reference \\
 \end{tabular}
 \end{table}
 
+\begin{table}[htbp]
+\centering
+\caption{Per-instance comparison, One-to-one Skew-GRAM vs.\ ILP2, on 10 representative 100-node instances (best to worst gap).}
+\label{tab:per-instance}
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Instance} & \textbf{ILP2} & \textbf{Skew-GRAM} & \textbf{Gap} & \textbf{ILP2 time} & \textbf{Skew-GRAM time} \\
+ & (nodes) & (nodes) & (\%) & (s) & (s) \\
+\midrule
+100\_121 & 6  & 6  & $0.0\%$   & $19.59$ & $0.69$ \\
+100\_402 & 11 & 11 & $0.0\%$   & $13.16$ & $0.80$ \\
+100\_190 & 11 & 11 & $0.0\%$   & $25.44$ & $0.77$ \\
+100\_197 & 11 & 9  & $-18.2\%$ & $19.73$ & $0.70$ \\
+100\_14  & 12 & 9  & $-25.0\%$ & $8.51$  & $0.77$ \\
+100\_320 & 12 & 8  & $-33.3\%$ & $33.91$ & $0.80$ \\
+100\_128 & 13 & 8  & $-38.5\%$ & $18.44$ & $0.90$ \\
+100\_66  & 16 & 9  & $-43.8\%$ & $9.98$  & $0.97$ \\
+100\_388 & 15 & 8  & $-46.7\%$ & $58.18$ & $0.84$ \\
+100\_527 & 11 & 4  & $-63.6\%$ & $15.83$ & $1.04$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.95\textwidth]{08_graph_topology_paths.png}
@@ -139,7 +162,7 @@ ILP2 \cite{sidi} (Exact solver) & $9.97$ nodes & $28.0$ s & reference \\
 \label{fig:comparison}
 \end{figure}
 
-Tested on 38 Erdős-Rényi networks (100 nodes), One-to-one Skew-GRAM extracts functional modules of \textbf{7.13 nodes} on average, a mean gap of $-30\%$ relative to the ILP2 optimum, and it matches or exceeds ILP2 on \textbf{13 of the 36} instances with a known optimum. Where the Deep Learning state-of-the-art fails (1.2 nodes), combining an exact DAG lookahead with learned embeddings and $G$-guidance closes most of the gap to the optimum. Inference time drops from 28 seconds to \textbf{2.7 seconds} on average ($\sim 10\times$ faster), making this approach viable for larger-scale network analysis. Ablating the DAG lookahead (i.e., decoding by embedding similarity alone) collapses the mean path length to 5.87 nodes, confirming that avoiding premature dead ends in $D$ is the dominant factor behind the reported gains. Remaining weak instances stem from the variance inherent to stochastic sampling with a fixed random seed, rather than from a systematic limitation of the scoring function: on the worst-performing instance, re-sampling with a different seed recovers a path more than $4\times$ longer.
+Table \ref{tab:per-instance} details 10 representative instances, ranging from an exact match with ILP2 (e.g., 100\_121, 100\_402, 100\_190) to the largest observed gap (100\_527); on every instance shown, One-to-one Skew-GRAM remains one to two orders of magnitude faster than ILP2. Tested on 38 Erdős-Rényi networks (100 nodes), One-to-one Skew-GRAM extracts functional modules of \textbf{7.13 nodes} on average, a mean gap of $-30\%$ relative to the ILP2 optimum, and it matches or exceeds ILP2 on \textbf{13 of the 36} instances with a known optimum. Where the Deep Learning state-of-the-art fails (1.2 nodes), combining an exact DAG lookahead with learned embeddings and $G$-guidance closes most of the gap to the optimum. Inference time drops from 28 seconds to \textbf{2.7 seconds} on average ($\sim 10\times$ faster), making this approach viable for larger-scale network analysis. Ablating the DAG lookahead (i.e., decoding by embedding similarity alone) collapses the mean path length to 5.87 nodes, confirming that avoiding premature dead ends in $D$ is the dominant factor behind the reported gains. Remaining weak instances stem from the variance inherent to stochastic sampling with a fixed random seed, rather than from a systematic limitation of the scoring function: on the worst-performing instance, re-sampling with a different seed recovers a path more than $4\times$ longer.
 
 \section{Conclusion}
 The One-to-one SkewGRAM problem illustrates the complexity of aligning causality and function in biology. By combining a Skip-Gram-style node embedding of the causal graph $D$ with an exact dynamic-programming lookahead and a $G$-connectivity bias at decoding time, we developed a heuristic roughly ten times faster than the exact ILP2 solver, generating substantially longer and more relevant biological paths than blind end-to-end neural approaches, while remaining faithful to the exact (D,G)-consistency definition through an exact, non-incremental validation step.
