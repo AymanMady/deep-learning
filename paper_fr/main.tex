@@ -63,7 +63,14 @@ Formellement, soit $V = \{v_1, \dots, v_n\}$ un ensemble de nœuds (entités bio
 \textbf{Objectif :} Trouver un chemin $P = (p_1, \dots, p_k)$ maximisant $k$, sous les conditions :
 1. $\forall i, (p_i, p_{i+1}) \in A$ (valide dans $D$).
 2. Le sous-graphe $G[\{p_1, \dots, p_k\}]$ est connexe.
-Un tel chemin est \textbf{(D,G)-consistant}. 
+Un tel chemin est \textbf{(D,G)-consistant}.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{09_problem_illustration.png}
+\caption{Exemple jouet sur 7 nœuds. Le même chemin $(p_1,\dots,p_5)$ doit à la fois être un chemin orienté valide dans $D$ (gauche) et induire un sous-graphe connexe dans $G$ (droite).}
+\label{fig:problem}
+\end{figure}
 
 \subsection{La Connexité ne Peut pas Être Vérifiée Incrémentalement}
 \label{sec:incremental}
@@ -73,7 +80,14 @@ Un audit empirique des solutions optimales ILP2 montre que le préfixe de nœuds
 \section{Méthodologie : One-to-one Skew-GRAM}
 \label{sec:method}
 
-Notre approche comporte deux composantes : (1) un modèle d'embeddings entraîné une fois par instance sur des marches aléatoires dans $D$, et (2) un décodeur guidé qui exploite ces embeddings, ainsi qu'une anticipation exacte sur le DAG et un signal de connexité à $G$, pour générer puis valider des chemins (D,G)-consistants.
+Notre approche comporte deux composantes : (1) un modèle d'embeddings entraîné une fois par instance sur des marches aléatoires dans $D$, et (2) un décodeur guidé qui exploite ces embeddings, ainsi qu'une anticipation exacte sur le DAG et un signal de connexité à $G$, pour générer puis valider des chemins (D,G)-consistants (Figure \ref{fig:pipeline}).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{10_pipeline_diagram.png}
+\caption{Le pipeline One-to-one Skew-GRAM en quatre phases, exécuté une fois par instance.}
+\label{fig:pipeline}
+\end{figure}
 
 \subsection{Phase 1 : Marches Aléatoires et Sous-échantillonnage des Hubs sur $D$}
 Les marches aléatoires (à la DeepWalk) suivent uniquement les \emph{arcs sortants de $D$}, puisque le chemin final doit être valide dans $D$ ; l'espace de recherche est donc structuré par $D$, pas par $G$. Les nœuds de haut degré sont sous-pondérés via la formule de sous-échantillonnage de word2vec, réduisant leur domination dans les couples d'entraînement extraits par fenêtre glissante sur les marches.
@@ -111,6 +125,20 @@ ILP2 \cite{sidi} (Solveur exact) & $9.97$ nœuds & $28.0$ s & référence \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{08_graph_topology_paths.png}
+\caption{Sur une instance réelle de 100 nœuds : le chemin brut trouvé dans $D$ par l'étape A (gauche, rouge) est plus long que le sous-chemin réellement connexe dans $G$ conservé après l'étape B (droite, bleu) — illustrant pourquoi l'étape d'extraction exacte est nécessaire.}
+\label{fig:decode-example}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{05_evaluation_comparison.png}
+\caption{Longueur de chemin par instance, One-to-one Skew-GRAM vs.\ ILP2 (gauche), et compromis qualité/temps sur l'ensemble des instances (droite, échelle de temps logarithmique).}
+\label{fig:comparison}
+\end{figure}
 
 Testé sur 38 réseaux d'Erdős-Rényi (100 nœuds), One-to-one Skew-GRAM extrait des modules fonctionnels de \textbf{7.13 nœuds} en moyenne, soit un écart moyen de $-30\%$ par rapport à l'optimum ILP2, et égale ou dépasse ILP2 sur \textbf{13 des 36} instances disposant d'un optimum connu. Là où l'état de l'art par Deep Learning échoue (1.2 nœuds), la combinaison d'une anticipation exacte sur le DAG, d'embeddings appris et d'un guidage par $G$ referme une grande partie de l'écart à l'optimum. Le temps d'inférence chute de 28 secondes à \textbf{2.7 secondes} en moyenne ($\sim 10\times$ plus rapide), rendant cette approche viable pour l'analyse de réseaux de plus grande échelle. Retirer l'anticipation DAG (c.-à-d. décoder uniquement par similarité d'embeddings) effondre la longueur moyenne à 5.87 nœuds, confirmant qu'éviter les culs-de-sac prématurés dans $D$ est le facteur dominant des gains observés. Les instances les plus faibles restantes s'expliquent par la variance intrinsèque de l'échantillonnage stochastique à graine fixe, plutôt que par une limite systématique de la fonction de score : sur l'instance la moins bonne, un ré-échantillonnage avec une autre graine retrouve un chemin plus de 4 fois plus long.
 
