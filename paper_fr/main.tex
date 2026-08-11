@@ -15,15 +15,21 @@
 
 \title{One-to-one SkewGRAM : from biology to NLP}
 \author{
-Bechir Mady\inst{1} \and 
-Abderahmane Abderrahmane\inst{1} \and 
-El Moustapha Mohamed El Moustapha\inst{1} \and 
-Mohamedou Yahya Cheikh Mohamed Vall\inst{1}
+Bechir Mady\inst{1} \and
+Abderahmane Abderrahmane\inst{1} \and
+Mohamedou Yahya Cheikh Mohamed Vall\inst{1} \and
+El Moustapha Mohamed El Moustapha\inst{1} \and
+Mohamed Lemine Ahmed Sidi\inst{1} \and
+Hafedh Mohamed Babou\inst{2}
 }
 
 \institute{
+\inst{1}Unité de Recherche en Systèmes Intelligents Avancés (URSIA),
 Institut Supérieur du Numérique (SupNum), Nouakchott, Mauritanie\\
-\email{\{22014, 22053, 22013, 24239\}@supnum.mr}
+\email{\{22014, 22053, 25239, 22013\}@supnum.mr,\ m-lamine.ahmed-sidi@supnum.mr}
+\and
+\inst{2}École Supérieure Polytechnique (ESP), Nouakchott, Mauritanie\\
+\email{hafedh.mohamed-babou@esp.mr}
 }
 
 \maketitle
@@ -81,6 +87,28 @@ Un audit empirique des solutions optimales ILP2 montre que le préfixe de nœuds
 \label{sec:method}
 
 Notre approche comporte deux composantes : (1) un modèle d'embeddings entraîné une fois par instance sur des marches aléatoires dans $D$, et (2) un décodeur guidé qui exploite ces embeddings, ainsi qu'une anticipation exacte sur le DAG et un signal de connexité à $G$, pour générer puis valider des chemins (D,G)-consistants (Figure \ref{fig:pipeline}).
+
+\subsection{Démarche générale : de l'instance au chemin, via Encoder et Decoder}
+\label{sec:demarche}
+
+À haut niveau, la démarche suit exactement le schéma \textbf{Encoder $\to$ Instance Skip-Gram $\to$ Decoder} : un sommet est un mot, une marche dans $D$ est une phrase, et le contexte d'un mot vient à la fois de $D$ (sa position dans les marches) et de $G$ (ses connexions fonctionnelles).
+
+\textbf{Encoder.} L'instance $(D,G)$ est d'abord traduite en tâche de langage. On génère des marches aléatoires dans $D$ (Phase 1) : depuis un sommet, on avance au hasard parmi ses successeurs, en ne suivant que les arcs sortants -- puisque le chemin final doit être valide dans $D$, l'espace exploré à ce stade est structuré par $D$, pas encore par $G$. Les sommets de haut degré sortant, sur-représentés dans les marches comme le seraient des mots vides dans un texte, sont sous-échantillonnés par la formule word2vec standard. Sur chaque marche restante, une fenêtre glissante de taille 3 produit les paires (centre, contexte) qui constituent, concrètement, l'instance Skip-Gram en sortie de l'Encoder.
+
+\textbf{Entraînement.} Deux matrices d'embeddings $\mathbf{V}_{in}, \mathbf{V}_{out}$ (dimension 32) sont entraînées par negative sampling (Phase 2) : chaque paire positive rapproche ses deux vecteurs, chaque négatif les éloigne. La différence avec un Skip-Gram de texte classique est l'échantillonnage négatif \emph{structurel} : les négatifs sont tirés parmi les non-successeurs du centre dans $D$, ancrant le signal négatif dans la causalité du graphe plutôt que dans une statistique de fréquence agnostique de la topologie. Ce cycle -- marches, corpus, entraînement -- est répété séparément pour chaque instance : les identifiants de sommets ne se correspondent pas d'une instance Erdős--Rényi à l'autre, donc un embedding appris sur l'une ne transfère pas vers une autre.
+
+\textbf{Decoder.} À partir des embeddings appris, on reconstruit un chemin pas à pas en combinant trois signaux à chaque décision (Phase 3) : (i) une anticipation exacte -- calculée une fois par instance, en temps linéaire -- de la longueur du plus long chemin encore possible dans $D$ depuis chaque sommet candidat, qui évite les culs-de-sac (sans elle, le décodage guidé par la seule similarité d'embeddings s'arrête en moyenne après 2,9 sommets, contre 12--13 possibles) ; (ii) la similarité d'embeddings elle-même -- le sommet suivant est celui dont le vecteur forme le \og meilleur contexte \fg{} avec le sommet courant ; (iii) un bonus lorsque le candidat est déjà connecté, dans $G$, à un sommet du chemin en cours de construction -- c'est ici, et seulement ici, que $G$ intervient dans le décodage. Cette marche guidée est répétée 30\,000 fois par instance depuis des départs variés, et le meilleur chemin brut est conservé.
+
+\textbf{Validation.} Rien dans les trois signaux ci-dessus ne garantit la $(D,G)$-consistance : ils orientent la recherche, ils ne la contraignent pas. Un audit empirique des solutions ILP2 optimales confirme d'ailleurs que la connexité ne peut pas être imposée pas à pas -- le préfixe visité à une étape intermédiaire n'induit presque jamais, à lui seul, un sous-graphe connexe de $G$ (\S\ref{sec:incremental}) ; ce n'est qu'une propriété de l'ensemble final. La Phase 4 extrait donc, \emph{exactement}, le plus long sous-chemin contigu du chemin brut dont les sommets induisent un sous-graphe connexe dans $G$, via un Union-Find à fenêtre glissante -- transformant un chemin plausible en chemin garanti (Figure \ref{fig:demarche}).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{11_demarche_diagram.png}
+\caption{Démarche générale de la solution. L'Encoder (Phases 1--2, \S\ref{sec:method}) traduit l'instance en instance Skip-Gram ; le Decoder (Phases 3--4) la retraduit en chemin $(D,G)$-consistant. Valeurs des hyperparamètres en Annexe~\ref{sec:hyperparams}.}
+\label{fig:demarche}
+\end{figure}
+
+Les quatre phases détaillées ci-dessous (\S\ref{sec:method}) mettent en œuvre concrètement ces deux étapes.
 
 \begin{figure}[htbp]
 \centering
@@ -167,6 +195,39 @@ Le Tableau \ref{tab:per-instance} détaille 10 instances représentatives, allan
 
 \section{Conclusion}
 Le problème One-to-one SkewGRAM illustre la complexité d'aligner la causalité et la fonction en biologie. En combinant un embedding de nœuds de type Skip-Gram du graphe causal $D$ avec une anticipation exacte par programmation dynamique et un biais de connexité à $G$ au moment du décodage, nous avons développé une heuristique environ dix fois plus rapide que le solveur exact ILP2, générant des chemins biologiques nettement plus longs et pertinents que les approches neuronales de bout-en-bout aveugles, tout en restant fidèle à la définition exacte de la (D,G)-consistance grâce à une étape de validation exacte et non incrémentale.
+
+\appendix
+\section{Hyperparamètres}
+\label{sec:hyperparams}
+
+Le Tableau \ref{tab:hyperparams} donne les valeurs exactes utilisées dans le code pour produire les résultats des Tableaux \ref{tab:results} et \ref{tab:per-instance}, avec la graine unique \texttt{SEED=42}, pour la reproductibilité.
+
+\begin{table}[htbp]
+\centering
+\caption{Hyperparamètres utilisés par l'Encoder (Phases 1--2) et le Decoder (Phases 3--4).}
+\label{tab:hyperparams}
+\begin{tabularx}{\textwidth}{Xccp{0.32\textwidth}}
+\toprule
+\textbf{Paramètre} & \textbf{Symbole} & \textbf{Valeur} & \textbf{Rôle} \\
+\midrule
+\multicolumn{4}{l}{\emph{Encoder -- Phases 1--2}} \\
+Marches par sommet de départ & -- & $40$ & taille du corpus de marches sur $D$ \\
+Longueur maximale d'une marche & -- & $30$ & arrêt anticipé sur un puits de $D$ \\
+Fenêtre de contexte & -- & $3$ & paires (centre, contexte) \\
+Dimension des embeddings & $d$ & $32$ & taille de $\mathbf{V}_{in}, \mathbf{V}_{out}$ \\
+Époques d'entraînement & -- & $8$ & optimiseur Adam \\
+Négatifs structurels par paire & $K$ & $5$ & voir Éq. de la perte, Phase 2 \\
+Taux d'apprentissage & -- & $0.01$ & Adam \\
+\addlinespace
+\multicolumn{4}{l}{\emph{Decoder -- Phases 3--4}} \\
+Marches Monte-Carlo au décodage & -- & $30\,000$ & par instance \\
+Température du signal d'embedding & $\tau$ & $0.5$ & règle de score, Phase 3 \\
+Poids du signal d'embedding & $\beta$ & $0.3$ & règle de score, Phase 3 \\
+Bonus de connexité à $G$ & $\gamma$ & $6.0$ & règle de score, Phase 3 \\
+Température de l'anticipation DAG & $\tau_{lf}$ & $1.5$ & règle de score, Phase 3 \\
+\bottomrule
+\end{tabularx}
+\end{table}
 
 \begin{thebibliography}{10}
 

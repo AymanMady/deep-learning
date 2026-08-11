@@ -14,15 +14,21 @@
 
 \title{One-to-one SkewGRAM: from biology to NLP}
 \author{
-Bechir Mady\inst{1} \and 
-Abderahmane Abderrahmane\inst{1} \and 
-El Moustapha Mohamed El Moustapha\inst{1} \and 
-Mohamedou Yahya Cheikh Mohamed Vall\inst{1}
+Bechir Mady\inst{1} \and
+Abderahmane Abderrahmane\inst{1} \and
+Mohamedou Yahya Cheikh Mohamed Vall\inst{1} \and
+El Moustapha Mohamed El Moustapha\inst{1} \and
+Mohamed Lemine Ahmed Sidi\inst{1} \and
+Hafedh Mohamed Babou\inst{2}
 }
 
 \institute{
+\inst{1}Unité de Recherche en Systèmes Intelligents Avancés (URSIA),
 Institut Supérieur du Numérique (SupNum), Nouakchott, Mauritania\\
-\email{\{22014, 22053, 22013, 24239\}@supnum.mr}
+\email{\{22014, 22053, 25239, 22013\}@supnum.mr,\ m-lamine.ahmed-sidi@supnum.mr}
+\and
+\inst{2}École Supérieure Polytechnique (ESP), Nouakchott, Mauritania\\
+\email{hafedh.mohamed-babou@esp.mr}
 }
 
 \maketitle
@@ -80,6 +86,28 @@ An empirical audit of the ILP2 optimal solutions shows that the prefix of nodes 
 \label{sec:method}
 
 Our approach has two components: (1) an embedding model trained once per instance on random walks over $D$, and (2) a guided decoder that uses these embeddings, together with an exact DAG lookahead and a $G$-connectivity signal, to generate and validate (D,G)-consistent paths (Figure \ref{fig:pipeline}).
+
+\subsection{General Approach: from Instance to Path, via Encoder and Decoder}
+\label{sec:demarche}
+
+At a high level, the approach follows exactly the \textbf{Encoder $\to$ Skip-Gram Instance $\to$ Decoder} scheme: a node is a word, a walk over $D$ is a sentence, and a word's context comes from both $D$ (its position in the walks) and $G$ (its functional connections).
+
+\textbf{Encoder.} The $(D,G)$ instance is first translated into a language task. Random walks are generated over $D$ (Phase 1): from a node, we advance randomly among its successors, following only outgoing arcs -- since the final path must be valid in $D$, the space explored at this stage is structured by $D$, not yet by $G$. Nodes with high out-degree, over-represented in the walks much like stopwords in a text, are sub-sampled using the standard word2vec formula. On each remaining walk, a sliding window of size 3 produces the (center, context) pairs that concretely form the Skip-Gram instance output by the Encoder.
+
+\textbf{Training.} Two embedding matrices $\mathbf{V}_{in}, \mathbf{V}_{out}$ (dimension 32) are trained with negative sampling (Phase 2): every positive pair pulls its two vectors together, every negative pushes them apart. The departure from a classic text Skip-Gram is \emph{structural} negative sampling: negatives are drawn among the center's non-successors in $D$, anchoring the negative signal in the graph's causal structure rather than in a topology-agnostic frequency statistic. This cycle -- walks, corpus, training -- is repeated separately for every instance: node identifiers do not correspond from one Erdős--Rényi instance to another, so an embedding learned on one does not transfer to another.
+
+\textbf{Decoder.} Starting from the learned embeddings, a path is reconstructed step by step by combining three signals at every decision (Phase 3): (i) an exact lookahead -- computed once per instance, in linear time -- of the longest path still possible in $D$ from each candidate node, which avoids dead ends (without it, decoding guided by embedding similarity alone stalls after 2.9 nodes on average, against 12--13 possible); (ii) the embedding similarity itself -- the next node is the one whose vector forms the ``best context'' with the current node; (iii) a bonus when the candidate is already connected, in $G$, to a node of the path under construction -- this is where, and only where, $G$ enters the decoding process. This guided walk is repeated 30,000 times per instance from varied starting points, and the best raw path is kept.
+
+\textbf{Validation.} Nothing in the three signals above guarantees $(D,G)$-consistency: they steer the search, they do not constrain it. An empirical audit of the optimal ILP2 solutions confirms, moreover, that connectivity cannot be enforced step by step -- the prefix visited at an intermediate step almost never induces, by itself, a connected subgraph of $G$ (\S\ref{sec:incremental}); it is only a property of the final set. Phase 4 therefore \emph{exactly} extracts the longest contiguous sub-path of the raw path whose nodes induce a connected subgraph in $G$, via a sliding-window Union-Find -- turning a plausible path into a guaranteed one (Figure \ref{fig:demarche}).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{11_demarche_diagram.png}
+\caption{General approach of the solution. The Encoder (Phases 1--2, \S\ref{sec:method}) translates the instance into a Skip-Gram instance; the Decoder (Phases 3--4) translates it back into a $(D,G)$-consistent path. Hyperparameter values in Appendix~\ref{sec:hyperparams}.}
+\label{fig:demarche}
+\end{figure}
+
+The four phases detailed below (\S\ref{sec:method}) concretely implement these two stages.
 
 \begin{figure}[htbp]
 \centering
@@ -166,6 +194,39 @@ Table \ref{tab:per-instance} details 10 representative instances, ranging from a
 
 \section{Conclusion}
 The One-to-one SkewGRAM problem illustrates the complexity of aligning causality and function in biology. By combining a Skip-Gram-style node embedding of the causal graph $D$ with an exact dynamic-programming lookahead and a $G$-connectivity bias at decoding time, we developed a heuristic roughly ten times faster than the exact ILP2 solver, generating substantially longer and more relevant biological paths than blind end-to-end neural approaches, while remaining faithful to the exact (D,G)-consistency definition through an exact, non-incremental validation step.
+
+\appendix
+\section{Hyperparameters}
+\label{sec:hyperparams}
+
+Table \ref{tab:hyperparams} gives the exact values used in the code to produce the results in Tables \ref{tab:results} and \ref{tab:per-instance}, with the single seed \texttt{SEED=42}, for reproducibility.
+
+\begin{table}[htbp]
+\centering
+\caption{Hyperparameters used by the Encoder (Phases 1--2) and the Decoder (Phases 3--4).}
+\label{tab:hyperparams}
+\begin{tabularx}{\textwidth}{Xccp{0.32\textwidth}}
+\toprule
+\textbf{Parameter} & \textbf{Symbol} & \textbf{Value} & \textbf{Role} \\
+\midrule
+\multicolumn{4}{l}{\emph{Encoder -- Phases 1--2}} \\
+Walks per starting node & -- & $40$ & size of the walk corpus over $D$ \\
+Maximum walk length & -- & $30$ & early stop on a sink of $D$ \\
+Context window & -- & $3$ & (center, context) pairs \\
+Embedding dimension & $d$ & $32$ & size of $\mathbf{V}_{in}, \mathbf{V}_{out}$ \\
+Training epochs & -- & $8$ & Adam optimizer \\
+Structural negatives per pair & $K$ & $5$ & see loss eq., Phase 2 \\
+Learning rate & -- & $0.01$ & Adam \\
+\addlinespace
+\multicolumn{4}{l}{\emph{Decoder -- Phases 3--4}} \\
+Monte-Carlo decoding walks & -- & $30{,}000$ & per instance \\
+Embedding-signal temperature & $\tau$ & $0.5$ & scoring rule, Phase 3 \\
+Embedding-signal weight & $\beta$ & $0.3$ & scoring rule, Phase 3 \\
+$G$-connectivity bonus & $\gamma$ & $6.0$ & scoring rule, Phase 3 \\
+DAG-lookahead temperature & $\tau_{lf}$ & $1.5$ & scoring rule, Phase 3 \\
+\bottomrule
+\end{tabularx}
+\end{table}
 
 \begin{thebibliography}{10}
 
