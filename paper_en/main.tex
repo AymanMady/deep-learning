@@ -1,4 +1,5 @@
 \documentclass{llncs}
+
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{graphicx}
@@ -13,6 +14,7 @@
 \begin{document}
 
 \title{One-to-one SkewGRAM: from biology to NLP}
+
 \author{
 Bechir Mady\inst{1} \and
 Abderahmane Abderrahmane\inst{1} \and
@@ -33,201 +35,651 @@ Institut Supérieur du Numérique (SupNum), Nouakchott, Mauritania\\
 
 \maketitle
 
+% ============================================================
+% ABSTRACT
+% ============================================================
+
 \begin{abstract}
-The One-to-one SkewGRAM problem is an NP-hard combinatorial optimization challenge from bioinformatics. It aims to find the longest path in a directed acyclic graph $D$ such that its vertices induce a connected subgraph in an undirected graph $G$. Exact methods (ILP) are exponentially slow, and Graph Neural Network (GNN) heuristics generate trivially short paths ($\approx$1.2 nodes). We propose \textbf{One-to-one Skew-GRAM}, a Skip-Gram-style node embedding model (DeepWalk/node2vec paradigm) trained on random walks over $D$ with structural negative sampling, coupled with a guided decoder that combines three signals at each step: (i) an exact dynamic-programming lookahead on the longest remaining path in the DAG $D$, which prevents the walk from stalling in dead ends, (ii) the learned embedding similarity, and (iii) a bonus rewarding successors that preserve connectivity in $G$. A final exact step extracts, via sliding-window Union-Find, the longest contiguous sub-path that is strictly connected in $G$. Evaluated on 38 synthetic instances (100 nodes, 36 with a known ILP2 optimum), our approach solves each instance in \textbf{2.7 seconds} on average (i.e., $\approx\mathbf{10\times}$ faster than the exact ILP2 solver), while discovering paths of \textbf{7.13 nodes} on average (mean gap of $-30\%$ to the ILP2 optimum, and matching or beating it on 13/36 instances), vastly outperforming the GNN state-of-the-art and offering a strong quality-time tradeoff for genomic-scale scaling.
+
+The One-to-one SkewGRAM problem is an NP-hard combinatorial optimization problem arising in bioinformatics. Given a directed acyclic graph $D$ and an undirected graph $G$ defined on the same set of biological entities, the objective is to find a longest path in $D$ whose vertices induce a connected subgraph in $G$. Exact optimization methods can provide optimal solutions but may become computationally expensive, while recent Graph Neural Network approaches tend to generate very short paths.
+
+We propose \textbf{One-to-one SkewGRAM}, a Skip-Gram-style node embedding approach based on directed random walks over $D$. The learned representations are combined with a guided decoder integrating three complementary signals: an exact dynamic-programming lookahead on $D$, embedding similarity, and a connectivity bonus based on $G$. Since these signals guide the search without enforcing the global connectivity constraint, a final exact sliding-window procedure based on Union-Find extracts the longest contiguous sub-path that satisfies the connectivity requirement.
+
+The proposed approach therefore combines representation learning with exact graph algorithms: embeddings guide the exploration, dynamic programming preserves the potential of the directed path, and the final extraction step guarantees the required connectivity. Experimental evaluation on synthetic instances is used to assess its solution quality and computational efficiency against exact and learning-based approaches.
+
+
 \keywords{Combinatorial Optimization \and Bioinformatics \and Graph Algorithms \and Node Embeddings \and Skip-Gram \and Dynamic Programming \and Connected Components \and Union-Find.}
+
 \end{abstract}
+
+% ============================================================
+% INTRODUCTION
+% ============================================================
 
 \section{Introduction}
 
-Artificial Intelligence (AI) and machine learning are experiencing growing adoption in bioinformatics. In developing countries, adopting AI-based approaches offers unique potential to bypass traditional development stages and accelerate biological discoveries, notably in disease treatment and agriculture. A major challenge is the integration and analysis of multiple layers of biological data (multi-omics).
+Artificial Intelligence (AI) and machine learning are increasingly used in bioinformatics to analyse complex biological data. Biological systems can naturally be represented as networks, where vertices correspond to biological entities and edges represent relationships between them. Combining complementary network structures is particularly useful for discovering conserved functional patterns.
 
-Living cells are governed by multiple networks of interactions. Cellular metabolism can be modeled as a directed graph, where metabolites are connected by directed biochemical reactions illustrating a causal flow. Simultaneously, genomic proximity or protein-protein interactions (PPI) can be modeled by undirected graphs, describing strong functional associations. Identifying common sub-structures in these two graphs allows for the discovery of essential functional modules conserved throughout evolution.
+For example, cellular metabolism can be represented by a directed graph, where metabolites are connected through directed biochemical reactions describing a causal flow. At the same time, genomic proximity or protein-protein interactions (PPI) \cite{sharan2006} can be represented by an undirected graph describing functional associations. Identifying structures that are simultaneously meaningful in these two graphs can therefore reveal important biological patterns.
 
-The \textbf{One-to-one SkewGRAM} problem formalizes this challenge: find a directed path in the metabolic graph whose entities form a connected whole in the functional network. This problem is NP-hard.
+The \textbf{One-to-one SkewGRAM} problem formalizes this task. Given a directed acyclic graph $D$ and an undirected graph $G$ over the same set of vertices, the objective is to find a longest directed path in $D$ whose vertices induce a connected subgraph in $G$. This problem is NP-hard \cite{sidi,fertin2012}.
 
-Recent approaches attempted to use Graph Neural Networks (GNNs) \cite{sidi}. Although promising, these methods generate very short paths (1.2 nodes on average), as the combinatorial exploration space is too vast for unconstrained sequential decoding. The exact solver ILP2 \cite{sidi} is optimal but highly time-consuming (28 seconds per 100-node instance).
+The difficulty comes from the interaction between two different structural constraints. A valid successor in $D$ does not necessarily preserve connectivity in $G$, while vertices that are functionally connected in $G$ may not form a directed path in $D$.
 
-In this paper, we propose \textbf{One-to-one Skew-GRAM}, an approach that transposes the Skip-Gram principle (Mikolov et al., 2013), via the DeepWalk/node2vec paradigm (Perozzi et al., 2014; Grover \& Leskovec, 2016), to this coupled-graph combinatorial optimization problem. Node embeddings are trained on random walks over $D$ only, since the target path must itself be a valid path in $D$; the constraint imposed by $G$ is injected only at decoding time, both as a soft guidance signal during generation and as a hard, exactly verified constraint in a final extraction step.
+Recent work has investigated deep-learning approaches to this problem \cite{sidi_dl}. In particular, a dual-GCN architecture with heuristic post-processing and a GCN encoder combined with an LSTM-Attention decoder (DL2) have been studied. Although these approaches demonstrate the potential of learning-based methods, the sequential decoding strategy generates very short paths, with DL2 producing approximately 1.2 nodes on average. In contrast, the exact ILP2 solver \cite{sidi} obtains optimal solutions but requires approximately 28 seconds per 100-node instance.
+
+These limitations motivate a hybrid approach that combines learned representations with explicit graph algorithms. Our main idea is to reinterpret directed random walks over $D$ as sentences, following the Skip-Gram and DeepWalk/node2vec paradigm \cite{mikolov,perozzi,grover}. Nodes play the role of words, while nodes occurring in similar contexts receive related representations.
+
+The learned embeddings alone, however, are not sufficient to solve the complete optimization problem. We therefore use them as a guidance signal inside a problem-specific decoder. The decoder combines embedding similarity with an exact dynamic-programming lookahead on $D$ and a soft connectivity signal from $G$. A final exact extraction step verifies the connectivity constraint.
 
 The contributions of this paper are:
+
 \begin{enumerate}
-    \item A Skip-Gram-style embedding model for DAG nodes, using structural negative sampling (non-successors in $D$) and hub sub-sampling.
-    \item A guided decoder combining an exact DAG longest-path lookahead, the learned embedding similarity, and a $G$-connectivity bonus, followed by an exact sliding-window Union-Find extraction of the longest (D,G)-consistent sub-path.
-    \item An empirical validation on 38 instances demonstrating a $\mathbf{\sim 10\times}$ speedup over ILP2, with average paths of 7.13 nodes (vs.\ 9.97 for the ILP2 optimum), matching or beating ILP2 on 13/36 instances, and vastly outperforming the 1.2-node GNN baseline.
+    \item A Skip-Gram-style node embedding model for DAG nodes, using directed random walks, hub sub-sampling, and structural negative sampling.
+    \item A guided decoder combining exact DAG longest-path lookahead, learned embedding similarity, and a $G$-connectivity bonus.
+    \item An exact sliding-window Union-Find procedure that extracts the longest $(D,G)$-consistent sub-path from each generated candidate.
+    \item An empirical evaluation showing a substantial quality--time trade-off compared with the exact ILP2 solver and the previously reported GNN approach.
 \end{enumerate}
+
+% ============================================================
+% PROBLEM FORMULATION
+% ============================================================
 
 \section{Problem Formulation and Mathematical Property}
 
-Formally, let $V = \{v_1, \dots, v_n\}$ be a set of nodes (biological entities).
+Let
+
+\[
+V = \{v_1,\ldots,v_n\}
+\]
+
+be a set of biological entities. We consider two graphs defined over $V$:
+
 \begin{itemize}
-    \item $D = (V, A)$: directed acyclic graph (DAG) modeling causal flow.
-    \item $G = (V, E)$: undirected graph modeling functional associations.
+    \item $D=(V,A)$: a directed acyclic graph modeling a causal or sequential relationship;
+    \item $G=(V,E)$: an undirected graph modeling functional associations.
 \end{itemize}
 
-\textbf{Objective:} Find a path $P = (p_1, \dots, p_k)$ maximizing $k$, subject to:
-1. $\forall i, (p_i, p_{i+1}) \in A$ (valid in $D$).
-2. The induced subgraph $G[\{p_1, \dots, p_k\}]$ is connected.
-Such a path is \textbf{(D,G)-consistent}.
+The objective is to find a path
+
+\[
+P=(p_1,\ldots,p_k)
+\]
+
+maximizing its number of vertices, subject to:
+
+\begin{equation}
+(p_i,p_{i+1})\in A,
+\qquad i=1,\ldots,k-1,
+\end{equation}
+
+and
+
+\begin{equation}
+G[\{p_1,\ldots,p_k\}]
+\text{ is connected}.
+\end{equation}
+
+The path is therefore valid in $D$ while its vertex set is connected in $G$. We call such a path a \textbf{$(D,G)$-consistent path}.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.95\textwidth]{09_problem_illustration.png}
-\caption{Toy example on 7 nodes. $D$ and $G$ share the same node set but have otherwise unrelated topologies (different edges, different shape). The same path $(p_1,\dots,p_5)$ must simultaneously be a valid directed path in $D$ (left) and induce a connected subgraph in $G$ (right), even though $D$ and $G$ look nothing alike.}
+\caption{
+Toy example on seven nodes. $D$ and $G$ share the same node set but represent different relationships. A valid solution must be a directed path in $D$ while its vertices induce a connected subgraph in $G$.
+}
 \label{fig:problem}
 \end{figure}
 
 \subsection{Connectivity Cannot Be Checked Incrementally}
 \label{sec:incremental}
 
-An empirical audit of the ILP2 optimal solutions shows that the prefix of nodes visited up to any intermediate step almost never induces, by itself, a connected subgraph of $G$: connectivity is a property of the \emph{final} node set, not one that can be guaranteed step by step during path construction. Consequently, a decoder cannot simply filter candidate successors by an incremental connectivity test; it must instead generate a candidate path in $D$ and verify, \emph{a posteriori}, which contiguous portion of it is (D,G)-consistent. This observation directly motivates the two-stage decoder of Section \ref{sec:method}.
+The connectivity requirement is global and cannot in general be reduced to a local test between consecutive nodes. In particular, a valid solution may contain vertices that are not adjacent in $G$ to their immediate predecessor but are connected to the selected set through other vertices.
+
+An empirical audit of ILP2 optimal solutions also shows that intermediate prefixes do not generally provide a reliable basis for enforcing the final connectivity condition. Therefore, simply rejecting every candidate that temporarily becomes disconnected in $G$ can eliminate valid solutions.
+
+Our decoder consequently uses $G$ only as a soft guidance signal during generation. The final connectivity constraint is checked exactly after a candidate directed path has been generated.
+
+% ============================================================
+% METHODOLOGY
+% ============================================================
 
 \section{Methodology: One-to-one Skew-GRAM}
 \label{sec:method}
 
-Our approach has two components: (1) an embedding model trained once per instance on random walks over $D$, and (2) a guided decoder that uses these embeddings, together with an exact DAG lookahead and a $G$-connectivity signal, to generate and validate (D,G)-consistent paths (Figure \ref{fig:pipeline}).
+Our approach contains two main components: an embedding model trained on directed random walks over $D$, and a guided decoder that combines the learned representations with structural information from $D$ and $G$.
+
+The complete procedure contains four phases:
+
+\begin{enumerate}
+    \item random-walk generation and hub sub-sampling;
+    \item Skip-Gram-style embedding learning;
+    \item DAG-aware guided decoding;
+    \item exact extraction of the $(D,G)$-consistent sub-path.
+\end{enumerate}
 
 \subsection{General Approach: from Instance to Path, via Encoder and Decoder}
 \label{sec:demarche}
 
-At a high level, the approach follows exactly the \textbf{Encoder $\to$ Skip-Gram Instance $\to$ Decoder} scheme: a node is a word, a walk over $D$ is a sentence, and a word's context comes from both $D$ (its position in the walks) and $G$ (its functional connections).
+The central analogy is:
 
-\textbf{Encoder.} The $(D,G)$ instance is first translated into a language task. Random walks are generated over $D$ (Phase 1): from a node, we advance randomly among its successors, following only outgoing arcs -- since the final path must be valid in $D$, the space explored at this stage is structured by $D$, not yet by $G$. Nodes with high out-degree, over-represented in the walks much like stopwords in a text, are sub-sampled using the standard word2vec formula. On each remaining walk, a sliding window of size 3 produces the (center, context) pairs that concretely form the Skip-Gram instance output by the Encoder.
+\[
+\text{node} \leftrightarrow \text{word},
+\qquad
+\text{random walk} \leftrightarrow \text{sentence},
+\qquad
+\text{context} \leftrightarrow \text{graph neighborhood in a walk}.
+\]
 
-\textbf{Training.} Two embedding matrices $\mathbf{V}_{in}, \mathbf{V}_{out}$ (dimension 32) are trained with negative sampling (Phase 2): every positive pair pulls its two vectors together, every negative pushes them apart. The departure from a classic text Skip-Gram is \emph{structural} negative sampling: negatives are drawn among the center's non-successors in $D$, anchoring the negative signal in the graph's causal structure rather than in a topology-agnostic frequency statistic. This cycle -- walks, corpus, training -- is repeated separately for every instance: node identifiers do not correspond from one Erdős--Rényi instance to another, so an embedding learned on one does not transfer to another.
+Random walks are generated only on $D$, following outgoing arcs. This ensures that the learned corpus reflects the directional structure required by the final path.
 
-\textbf{Decoder.} Starting from the learned embeddings, a path is reconstructed step by step by combining three signals at every decision (Phase 3): (i) an exact lookahead -- computed once per instance, in linear time -- of the longest path still possible in $D$ from each candidate node, which avoids dead ends (without it, decoding guided by embedding similarity alone stalls after 2.9 nodes on average, against 12--13 possible); (ii) the embedding similarity itself -- the next node is the one whose vector forms the ``best context'' with the current node; (iii) a bonus when the candidate is already connected, in $G$, to a node of the path under construction -- this is where, and only where, $G$ enters the decoding process. This guided walk is repeated 30,000 times per instance from varied starting points, and the best raw path is kept.
+A sliding window is then used to generate center-context pairs. High-frequency nodes are sub-sampled to reduce the influence of hubs.
 
-\textbf{Validation.} Nothing in the three signals above guarantees $(D,G)$-consistency: they steer the search, they do not constrain it. An empirical audit of the optimal ILP2 solutions confirms, moreover, that connectivity cannot be enforced step by step -- the prefix visited at an intermediate step almost never induces, by itself, a connected subgraph of $G$ (\S\ref{sec:incremental}); it is only a property of the final set. Phase 4 therefore \emph{exactly} extracts the longest contiguous sub-path of the raw path whose nodes induce a connected subgraph in $G$, via a sliding-window Union-Find -- turning a plausible path into a guaranteed one (Figure \ref{fig:demarche}).
+The resulting pairs are used to train two embedding matrices using negative sampling. Unlike standard Skip-Gram, negative examples are selected structurally from non-successors in $D$.
+
+During decoding, the learned embeddings are combined with an exact dynamic-programming lookahead and a soft $G$-connectivity bonus. The decoder is executed repeatedly from different starting nodes, and the best candidate is retained.
+
+Finally, because the guidance signals do not guarantee global connectivity, an exact sliding-window Union-Find procedure extracts the longest contiguous sub-path that is connected in $G$.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{11_demarche_diagram.png}
-\caption{General approach of the solution. The Encoder (Phases 1--2, \S\ref{sec:method}) translates the instance into a Skip-Gram instance; the Decoder (Phases 3--4) translates it back into a $(D,G)$-consistent path. Hyperparameter values in Appendix~\ref{sec:hyperparams}.}
+\caption{
+General approach of One-to-one Skew-GRAM. The encoder transforms the instance into a Skip-Gram-like learning problem, while the decoder uses the learned embeddings and graph-specific information to generate and validate candidate paths.
+}
 \label{fig:demarche}
 \end{figure}
-
-The four phases detailed below (\S\ref{sec:method}) concretely implement these two stages.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{10_pipeline_diagram.png}
-\caption{The four-phase One-to-one Skew-GRAM pipeline, run once per instance.}
+\caption{
+Four-phase One-to-one Skew-GRAM pipeline, executed once per instance.
+}
 \label{fig:pipeline}
 \end{figure}
 
+% ============================================================
+% PHASE 1
+% ============================================================
+
 \subsection{Phase 1: Random Walks and Hub Sub-sampling on $D$}
-Random walks (DeepWalk-style) follow only the \emph{outgoing arcs of $D$}, since the final path must be valid in $D$; the search space is therefore structured by $D$, not by $G$. High-degree nodes are down-weighted using the word2vec sub-sampling formula, reducing their dominance in training pairs drawn with a sliding window over the walks.
+
+Random walks are generated by following only outgoing arcs of $D$. For a current node $u$, the next node is sampled from its successor set $N^+(u)$. The walk terminates when a sink is reached or when the maximum walk length is attained.
+
+The resulting walks are interpreted as sentences. A context window is then applied to generate center-context pairs.
+
+High-frequency nodes are down-weighted using the standard word2vec sub-sampling strategy. This reduces the dominance of hubs during representation learning without changing the graph used by the decoder.
+
+% ============================================================
+% PHASE 2
+% ============================================================
 
 \subsection{Phase 2: One-to-one Skew-GRAM Embedding Model}
-Two embedding matrices $\mathbf{V}_{in}, \mathbf{V}_{out} \in \mathbb{R}^{N \times d}$ are trained with a negative-sampling loss:
+
+Two embedding matrices
+
+\[
+\mathbf{V}_{in},\mathbf{V}_{out}
+\in
+\mathbb{R}^{N\times d}
+\]
+
+are trained, where $N=|V|$ and $d=32$.
+
+For a center node $c$, a positive context node $o$, and $K$ negative samples $n_1,\ldots,n_K$, the negative-sampling loss is
+
 \begin{equation}
-\mathcal{L}(c,o,n_{1:K}) = -\log\sigma(\mathbf v_{in,c}^\top \mathbf v_{out,o}) - \sum_{k=1}^K \log\sigma(-\mathbf v_{in,c}^\top \mathbf v_{out,n_k})
+\mathcal{L}(c,o,n_{1:K})
+=
+-\log\sigma
+(\mathbf{v}_{in,c}^{\top}\mathbf{v}_{out,o})
+-
+\sum_{k=1}^{K}
+\log\sigma
+(-\mathbf{v}_{in,c}^{\top}\mathbf{v}_{out,n_k}).
 \end{equation}
-The key departure from vanilla Skip-Gram is \textbf{structural negative sampling}: negatives are drawn among the non-successors of $c$ in $D$, rather than from a topology-agnostic unigram distribution, making the negative signal consistent with the causal structure of the DAG.
+
+The main modification to the standard Skip-Gram objective is \textbf{structural negative sampling}. Negative nodes are sampled among nodes that are not successors of the center node in $D$.
+
+This makes the negative signal sensitive to the directional structure of the problem rather than relying only on frequency.
+
+The similarity used during decoding is
+
+\begin{equation}
+\operatorname{sim}(u,v)
+=
+\mathbf{v}_{in,u}^{\top}
+\mathbf{v}_{out,v}.
+\end{equation}
+
+The model is trained independently for each instance because node identifiers do not have a common semantic meaning across the independently generated graphs.
+
+% ============================================================
+% PHASE 3
+% ============================================================
 
 \subsection{Phase 3: DAG-Aware Guided Decoding (Step A)}
-A naive decoder that samples successors by embedding similarity alone frequently stalls in dead ends of $D$: on a representative 100-node instance, unguided walks reach only 2.9 nodes on average, against a true longest path of 12--13 nodes. We therefore precompute, once per instance, an exact dynamic-programming lookahead
-\begin{equation}
-\mathrm{lf}(v) = \max_{w \in N^+(v)} \big(1 + \mathrm{lf}(w)\big), \qquad \mathrm{lf}(v)=0 \text{ if } N^+(v)=\emptyset,
-\end{equation}
-computed in $O(|V|+|A|)$ by a single reverse topological pass, giving the length of the longest path from $v$ to a sink of $D$. At each decoding step from node $u$, a successor $v$ is sampled among $N^+(u)$ with probability proportional to $\exp\!\big(\mathrm{lf}(v)/\tau_{lf} + \beta\,\mathrm{sim}(u,v)/\tau + \log(\gamma)\cdot\mathbb{1}[v \text{ adjacent in } G \text{ to the path so far}]\big)$, combining the DAG lookahead (avoids dead ends), the learned embedding similarity (Skew-GRAM signal), and a bonus $\gamma$ for successors that preserve connectivity in $G$. Many such walks are sampled from random starting nodes, masking already-visited nodes to guarantee a one-to-one position-to-node mapping.
 
-\subsection{Phase 4: Exact Extraction of the (D,G)-Consistent Sub-path (Step B)}
-As established in Section \ref{sec:incremental}, connectivity cannot be enforced incrementally. For each candidate path $P$ produced by Step A, we apply a sliding-window algorithm coupled with an incremental Union-Find to extract the maximal contiguous sub-interval $[i,j]$ such that $G[\{p_i,\dots,p_j\}]$ is strictly connected, in $O(L^2\alpha(L))$ for a candidate of length $L$. A contiguous sub-path of a $D$-path is itself a valid $D$-path, so this step only imposes the $G$-connectivity constraint \emph{a posteriori}; it never invalidates the $D$-validity established in Step A.
+A decoder based only on embedding similarity can select locally attractive successors that quickly lead to sinks. To reduce this behavior, we compute an exact longest-path lookahead on $D$.
+
+For each node $v$, define
+
+\begin{equation}
+\mathrm{lf}(v)
+=
+\begin{cases}
+0, & N^+(v)=\emptyset,\\
+\displaystyle
+\max_{w\in N^+(v)}
+\left(1+\mathrm{lf}(w)\right),
+& \text{otherwise}.
+\end{cases}
+\end{equation}
+
+Since $D$ is a DAG, all $\mathrm{lf}(v)$ values are computed in a single reverse topological pass in
+
+\[
+O(|V|+|A|).
+\]
+
+At each decoding step, let $u$ be the current node and $v\in N^+(u)$ a candidate successor. We define
+
+\begin{equation}
+S(u,v)
+=
+\frac{\mathrm{lf}(v)}{\tau_{lf}}
++
+\beta
+\frac{\operatorname{sim}(u,v)}{\tau}
++
+\log(\gamma)
+\mathbb{I}
+[v \text{ is adjacent in }G\text{ to a selected node}].
+\end{equation}
+
+The next node is sampled according to
+
+\begin{equation}
+P(v\mid u)
+=
+\frac{\exp(S(u,v))}
+{\sum_{w\in N^+(u)}\exp(S(u,w))}.
+\end{equation}
+
+The three terms respectively represent:
+
+\begin{enumerate}
+    \item the remaining directed-path potential in $D$;
+    \item the learned embedding compatibility;
+    \item a soft preference for candidates connected in $G$ to the path constructed so far.
+\end{enumerate}
+
+Already visited nodes are masked to preserve the one-to-one constraint. The decoder is repeated 30,000 times per instance using different starting points, and the best final extracted path is retained.
+
+% ============================================================
+% PHASE 4
+% ============================================================
+
+\subsection{Phase 4: Exact Extraction of the $(D,G)$-Consistent Sub-path (Step B)}
+
+The candidate generated in Phase 3 is guaranteed to be a directed path in $D$, but it is not necessarily connected in $G$.
+
+For a candidate path
+
+\[
+P=(p_1,\ldots,p_L),
+\]
+
+we therefore search for the longest contiguous interval $[i,j]$ such that
+
+\[
+G[\{p_i,\ldots,p_j\}]
+\]
+
+is connected.
+
+A contiguous sub-path of a valid $D$-path remains a valid $D$-path. Thus, this final step only needs to enforce the $G$-connectivity condition.
+
+We use a sliding-window procedure combined with an incremental Union-Find structure \cite{tarjan1975}. For a candidate path of length $L$, the worst-case complexity is
+
+\[
+O(L^2\alpha(L)),
+\]
+
+where $\alpha$ is the inverse Ackermann function.
+
+This final step is exact: every path returned by the algorithm satisfies the definition of a $(D,G)$-consistent path.
+
+% ============================================================
+% RESULTS
+% ============================================================
 
 \section{Results and Discussion}
 
-\begin{table}[htbp]
-\centering
-\caption{Comparison of methods on 38 synthetic instances (100 nodes, 36 with a known ILP2 optimum).}
-\label{tab:results}
-\begin{tabular}{lrrr}
-\toprule
-\textbf{Method} & \textbf{Mean Length} & \textbf{Mean Time} & \textbf{Speedup} \\
-\midrule
-GNN DL2 \cite{sidi} (AI state-of-the-art) & $\approx 1.2$ nodes & N/A & — \\
-ILP2 \cite{sidi} (Exact solver) & $9.97$ nodes & $28.0$ s & reference \\
-\textbf{One-to-one Skew-GRAM (ours)} & $\mathbf{7.13}$ \textbf{nodes} & $\mathbf{2.7}$ \textbf{s} & $\mathbf{\sim 10\times}$ \\
-\bottomrule
-\end{tabular}
-\end{table}
+\subsection{Experimental Setup}
+
+We evaluate the proposed method on 38 synthetic Erdős--Rényi instances \cite{erdos1959}, each containing 100 nodes. An ILP2 optimum is available for 36 of the 38 instances.
+
+The comparison includes:
+
+\begin{itemize}
+    \item GNN DL2 \cite{sidi_dl};
+    \item ILP2 \cite{sidi};
+    \item One-to-one Skew-GRAM.
+\end{itemize}
+
+The embedding dimension is 32, with 40 walks per starting node, a maximum walk length of 30, a context window of 3, and five structural negative samples per positive pair. The decoder performs 30,000 Monte-Carlo walks per instance.
+
+All experiments use the fixed random seed \texttt{SEED=42}. The complete hyperparameter configuration is provided in Appendix~\ref{sec:hyperparams}.
+
+% ============================================================
+% TABLE 1
+% ============================================================
 
 \begin{table}[htbp]
 \centering
-\caption{Per-instance comparison, One-to-one Skew-GRAM vs.\ ILP2, on 10 representative 100-node instances (best to worst gap).}
-\label{tab:per-instance}
-\begin{tabular}{lrrrrr}
+\caption{
+Comparison of methods on 38 synthetic instances with 100 nodes. ILP2 optima are available for 36 instances.
+}
+\label{tab:results}
+
+\begin{tabular}{lrrr}
 \toprule
-\textbf{Instance} & \textbf{ILP2} & \textbf{Skew-GRAM} & \textbf{Gap} & \textbf{ILP2 time} & \textbf{Skew-GRAM time} \\
- & (nodes) & (nodes) & (\%) & (s) & (s) \\
+\textbf{Method}
+&
+\textbf{Mean Length}
+&
+\textbf{Mean Time}
+&
+\textbf{Speedup}
+\\
 \midrule
-100\_121 & 6  & 6  & $0.0\%$   & $19.59$ & $0.69$ \\
-100\_402 & 11 & 11 & $0.0\%$   & $13.16$ & $0.80$ \\
-100\_190 & 11 & 11 & $0.0\%$   & $25.44$ & $0.77$ \\
-100\_197 & 11 & 9  & $-18.2\%$ & $19.73$ & $0.70$ \\
-100\_14  & 12 & 9  & $-25.0\%$ & $8.51$  & $0.77$ \\
-100\_320 & 12 & 8  & $-33.3\%$ & $33.91$ & $0.80$ \\
-100\_128 & 13 & 8  & $-38.5\%$ & $18.44$ & $0.90$ \\
-100\_66  & 16 & 9  & $-43.8\%$ & $9.98$  & $0.97$ \\
-100\_388 & 15 & 8  & $-46.7\%$ & $58.18$ & $0.84$ \\
-100\_527 & 11 & 4  & $-63.6\%$ & $15.83$ & $1.04$ \\
+
+GNN DL2 \cite{sidi_dl}
+& $\approx 1.2$
+& N/A
+& --
+
+\\
+
+ILP2 \cite{sidi}
+& $9.97$
+& $28.0$ s
+& reference
+
+\\
+
+\textbf{One-to-one Skew-GRAM}
+& $\mathbf{7.13}$
+& $\mathbf{2.7}$ s
+& $\mathbf{\sim10\times}$
+
+\\
+
 \bottomrule
 \end{tabular}
+
 \end{table}
+
+The proposed method obtains an average path length of 7.13 nodes, compared with 9.97 nodes for ILP2. The corresponding average relative difference is approximately
+
+\[
+\frac{7.13-9.97}{9.97}
+\approx -28.5\%.
+\]
+
+The mean runtime decreases from 28.0 seconds for ILP2 to 2.7 seconds for One-to-one Skew-GRAM, corresponding to a speedup of approximately 10.4$\times$.
+
+The results therefore indicate a substantial quality--time trade-off: the proposed heuristic does not consistently recover the exact optimum, but it obtains considerably longer paths than the previous GNN approach while requiring substantially less computation than ILP2.
+
+% ============================================================
+% TABLE 2
+% ============================================================
+
+\begin{table}[htbp]
+\centering
+\caption{
+Per-instance comparison between One-to-one Skew-GRAM and ILP2 on ten representative 100-node instances.
+}
+\label{tab:per-instance}
+
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Instance}
+&
+\textbf{ILP2}
+&
+\textbf{Skew-GRAM}
+&
+\textbf{Gap}
+&
+\textbf{ILP2 time}
+&
+\textbf{Skew-GRAM time}
+\\
+&
+(nodes)
+&
+(nodes)
+&
+(\%)
+&
+(s)
+&
+(s)
+\\
+\midrule
+
+100\_121 & 6  & 6  & $0.0\%$   & 19.59 & 0.69 \\
+100\_402 & 11 & 11 & $0.0\%$   & 13.16 & 0.80 \\
+100\_190 & 11 & 11 & $0.0\%$   & 25.44 & 0.77 \\
+100\_197 & 11 & 9  & $-18.2\%$ & 19.73 & 0.70 \\
+100\_14  & 12 & 9  & $-25.0\%$ & 8.51  & 0.77 \\
+100\_320 & 12 & 8  & $-33.3\%$ & 33.91 & 0.80 \\
+100\_128 & 13 & 8  & $-38.5\%$ & 18.44 & 0.90 \\
+100\_66  & 16 & 9  & $-43.8\%$ & 9.98  & 0.97 \\
+100\_388 & 15 & 8  & $-46.7\%$ & 58.18 & 0.84 \\
+100\_527 & 11 & 4  & $-63.6\%$ & 15.83 & 1.04 \\
+
+\bottomrule
+\end{tabular}
+
+\end{table}
+
+Table~\ref{tab:per-instance} illustrates the variability of the heuristic across instances. One-to-one Skew-GRAM exactly matches ILP2 on several instances, including 100\_121, 100\_402, and 100\_190. Across the 36 instances with a known optimum, it matches the ILP2 optimum on 13 instances.
+
+The runtime remains substantially lower for all instances shown. The difference is particularly visible for instances such as 100\_388, where ILP2 requires 58.18 seconds while the proposed method requires only 0.84 seconds.
+
+The variability in solution quality is expected because the decoder relies on stochastic sampling. Some instances contain promising paths that are easier to reach through the learned guidance, while others require exploration of less probable branches.
+
+% ============================================================
+% FIGURES
+% ============================================================
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.95\textwidth]{08_graph_topology_paths.png}
-\caption{On a real 100-node instance: the raw path found in $D$ by Step A (left, red) is longer than the sub-path that is actually connected in $G$ and kept after Step B (right, blue) — illustrating why the exact extraction step is necessary.}
+\caption{
+Example of the two-step decoding process. Step A generates a directed path in $D$, while Step B extracts the longest contiguous sub-path that is connected in $G$.
+}
 \label{fig:decode-example}
 \end{figure}
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.95\textwidth]{05_evaluation_comparison.png}
-\caption{Per-instance path length, One-to-one Skew-GRAM vs.\ ILP2 (left), and the quality/time trade-off across all instances (right, log time scale).}
+\caption{
+Per-instance path-length comparison between One-to-one Skew-GRAM and ILP2, together with the quality--time trade-off across the evaluated instances.
+}
 \label{fig:comparison}
 \end{figure}
 
-Table \ref{tab:per-instance} details 10 representative instances, ranging from an exact match with ILP2 (e.g., 100\_121, 100\_402, 100\_190) to the largest observed gap (100\_527); on every instance shown, One-to-one Skew-GRAM remains one to two orders of magnitude faster than ILP2. Tested on 38 Erdős-Rényi networks (100 nodes), One-to-one Skew-GRAM extracts functional modules of \textbf{7.13 nodes} on average, a mean gap of $-30\%$ relative to the ILP2 optimum, and it matches or exceeds ILP2 on \textbf{13 of the 36} instances with a known optimum. Where the Deep Learning state-of-the-art fails (1.2 nodes), combining an exact DAG lookahead with learned embeddings and $G$-guidance closes most of the gap to the optimum. Inference time drops from 28 seconds to \textbf{2.7 seconds} on average ($\sim 10\times$ faster), making this approach viable for larger-scale network analysis. Ablating the DAG lookahead (i.e., decoding by embedding similarity alone) collapses the mean path length to 5.87 nodes, confirming that avoiding premature dead ends in $D$ is the dominant factor behind the reported gains. Remaining weak instances stem from the variance inherent to stochastic sampling with a fixed random seed, rather than from a systematic limitation of the scoring function: on the worst-performing instance, re-sampling with a different seed recovers a path more than $4\times$ longer.
+% ============================================================
+% ABLATION
+% ============================================================
+
+\subsection{Ablation of DAG Lookahead}
+
+We also evaluate the importance of the exact DAG lookahead by removing it from the decoder.
+
+Without the lookahead, decoding based primarily on embedding similarity produces an average path length of 5.87 nodes, compared with 7.13 nodes for the complete approach.
+
+This represents a reduction of approximately 17.7\%.
+
+The result confirms that embedding similarity alone does not adequately capture the remaining path potential in the DAG. A candidate node may be locally compatible with the current node while leading to a short branch or a sink.
+
+The dynamic-programming lookahead provides this information explicitly and therefore helps the decoder avoid premature dead ends.
+
+% ============================================================
+% DISCUSSION
+% ============================================================
+
+\subsection{Discussion}
+
+The results highlight the benefit of combining learned and algorithmic components.
+
+First, the large difference between DL2 and One-to-one Skew-GRAM suggests that purely sequential neural decoding has difficulty maintaining sufficiently long paths under the coupled constraints of $D$ and $G$.
+
+Second, the DAG lookahead provides exact information that can be computed efficiently because $D$ is acyclic. Rather than requiring the embedding model to learn this property implicitly, we provide it directly to the decoder.
+
+Third, $G$ is deliberately used as a guidance and validation structure rather than being incorporated into the embedding objective. This keeps the representation-learning problem focused on the directed structure that defines valid path order, while the global connectivity constraint is handled explicitly during decoding and extraction.
+
+The proposed method should therefore not be interpreted as a replacement for ILP2 when guaranteed optimality is required. Its main advantage is the quality--time trade-off: it obtains substantially longer paths than the previous GNN approach while being approximately ten times faster than the exact solver on the evaluated instances.
+
+% ============================================================
+% CONCLUSION
+% ============================================================
 
 \section{Conclusion}
-The One-to-one SkewGRAM problem illustrates the complexity of aligning causality and function in biology. By combining a Skip-Gram-style node embedding of the causal graph $D$ with an exact dynamic-programming lookahead and a $G$-connectivity bias at decoding time, we developed a heuristic roughly ten times faster than the exact ILP2 solver, generating substantially longer and more relevant biological paths than blind end-to-end neural approaches, while remaining faithful to the exact (D,G)-consistency definition through an exact, non-incremental validation step.
+
+We presented \textbf{One-to-one SkewGRAM}, a hybrid approach for the NP-hard One-to-one SkewGRAM problem. The method combines Skip-Gram-style node embeddings learned from directed random walks over $D$ with an exact DAG lookahead, a connectivity-guided decoding strategy, and an exact final extraction step based on Union-Find.
+
+The experimental results on 38 synthetic 100-node instances show that the proposed approach provides a strong quality--time trade-off. It obtains an average path length of 7.13 nodes in 2.7 seconds, compared with 9.97 nodes in 28.0 seconds for the exact ILP2 solver. It reaches the ILP2 optimum on 13 of the 36 instances for which an optimum is available, while requiring substantially less computation. The ablation study also confirms the importance of the DAG lookahead for maintaining longer candidate paths.
+
+These results suggest that combining learned node representations with problem-specific graph algorithms can provide an effective alternative to both purely exact optimization and end-to-end neural decoding for coupled-graph combinatorial problems.
+
+
+% ============================================================
+% APPENDIX
+% ============================================================
 
 \appendix
+
 \section{Hyperparameters}
 \label{sec:hyperparams}
 
-Table \ref{tab:hyperparams} gives the exact values used in the code to produce the results in Tables \ref{tab:results} and \ref{tab:per-instance}, with the single seed \texttt{SEED=42}, for reproducibility.
+Table~\ref{tab:hyperparams} gives the hyperparameters used to obtain the reported results.
 
 \begin{table}[htbp]
 \centering
-\caption{Hyperparameters used by the Encoder (Phases 1--2) and the Decoder (Phases 3--4).}
+\caption{
+Hyperparameters used by the encoder and decoder.
+}
 \label{tab:hyperparams}
+
 \begin{tabularx}{\textwidth}{Xccp{0.32\textwidth}}
 \toprule
-\textbf{Parameter} & \textbf{Symbol} & \textbf{Value} & \textbf{Role} \\
+\textbf{Parameter}
+&
+\textbf{Symbol}
+&
+\textbf{Value}
+&
+\textbf{Role}
+\\
 \midrule
-\multicolumn{4}{l}{\emph{Encoder -- Phases 1--2}} \\
-Walks per starting node & -- & $40$ & size of the walk corpus over $D$ \\
-Maximum walk length & -- & $30$ & early stop on a sink of $D$ \\
-Context window & -- & $3$ & (center, context) pairs \\
-Embedding dimension & $d$ & $32$ & size of $\mathbf{V}_{in}, \mathbf{V}_{out}$ \\
-Training epochs & -- & $8$ & Adam optimizer \\
-Structural negatives per pair & $K$ & $5$ & see loss eq., Phase 2 \\
-Learning rate & -- & $0.01$ & Adam \\
+
+\multicolumn{4}{l}{\emph{Encoder -- Phases 1--2}}
+\\
+
+Walks per starting node
+& --
+& $40$
+& Size of the walk corpus over $D$
+\\
+
+Maximum walk length
+& --
+& $30$
+& Early stop on a sink
+\\
+
+Context window
+& --
+& $3$
+& Center-context pair generation
+\\
+
+Embedding dimension
+& $d$
+& $32$
+& Size of node embeddings
+\\
+
+Training epochs
+& --
+& $8$
+& Adam optimizer
+\\
+
+Structural negatives per pair
+& $K$
+& $5$
+& Negative samples
+\\
+
+Learning rate
+& --
+& $0.01$
+& Adam learning rate
+\\
+
 \addlinespace
-\multicolumn{4}{l}{\emph{Decoder -- Phases 3--4}} \\
-Monte-Carlo decoding walks & -- & $30{,}000$ & per instance \\
-Embedding-signal temperature & $\tau$ & $0.5$ & scoring rule, Phase 3 \\
-Embedding-signal weight & $\beta$ & $0.3$ & scoring rule, Phase 3 \\
-$G$-connectivity bonus & $\gamma$ & $6.0$ & scoring rule, Phase 3 \\
-DAG-lookahead temperature & $\tau_{lf}$ & $1.5$ & scoring rule, Phase 3 \\
+
+\multicolumn{4}{l}{\emph{Decoder -- Phases 3--4}}
+\\
+
+Monte-Carlo decoding walks
+& --
+& $30{,}000$
+& Number of candidate paths
+\\
+
+Embedding-signal temperature
+& $\tau$
+& $0.5$
+& Embedding score temperature
+\\
+
+Embedding-signal weight
+& $\beta$
+& $0.3$
+& Weight of embedding similarity
+\\
+
+$G$-connectivity bonus
+& $\gamma$
+& $6.0$
+& Connectivity preference
+\\
+
+DAG-lookahead temperature
+& $\tau_{lf}$
+& $1.5$
+& Lookahead score temperature
+\\
+
 \bottomrule
 \end{tabularx}
+
 \end{table}
 
+% ============================================================
+% REFERENCES
+% ============================================================
+
+\clearpage
 \begin{thebibliography}{10}
 
 \bibitem{sidi}
@@ -235,25 +687,80 @@ Ahmed Sidi, M. L., Babou, H. M., Dhib, C., Neron, E., Soukhal, A., Nanne, M. F.:
 Constraint programming approaches for finding conserved metabolic and genomic patterns.
 Computers \& Operations Research, 183:107166 (2025)
 
+\bibitem{sidi_dl}
+Sidi, M. L. A., Babou, H. M., Dhib, C.:
+Deep Learning approaches for finding a longest DG-consistent path in biological networks.
+Working paper / Preprint (2024)
+
 \bibitem{zaharia}
 Zaharia, A., et al.:
 CoMetGeNe: Mining conserved neighborhood patterns in metabolic and genomic contexts.
 BMC Bioinformatics, 20(1):1--20 (2019)
 
 \bibitem{mikolov}
-Mikolov, T., Sutskever, I., Chen, K., Corrado, G., Dean, J.:
+Mikolov, T., Sutskever, I., Chen, K., Corrado, R., Dean, J.:
 Distributed Representations of Words and Phrases and their Compositionality.
-NeurIPS (2013)
+In: Advances in Neural Information Processing Systems (2013)
 
 \bibitem{perozzi}
 Perozzi, B., Al-Rfou, R., Skiena, S.:
 DeepWalk: Online Learning of Social Representations.
-KDD (2014)
+In: Proceedings of the 20th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (2014)
 
 \bibitem{grover}
 Grover, A., Leskovec, J.:
 node2vec: Scalable Feature Learning for Networks.
-KDD (2016)
+In: Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (2016)
+
+\bibitem{sharan2006}
+Sharan, R., Ideker, T.:
+Modeling protein interaction networks.
+Nature Reviews Genetics, 7(7):575--582 (2006)
+
+\bibitem{fertin2012}
+Fertin, G., Babou, H. M., Rusu, I.:
+Algorithms for sub-network mining in heterogeneous networks.
+Lecture Notes in Computer Science, 7276:184--194 (2012)
+
+\bibitem{tarjan1975}
+Tarjan, R. E.:
+Efficiency of a Good But Not Linear Set Union Algorithm.
+Journal of the ACM, 22(2):215--225 (1975)
+
+\bibitem{erdos1959}
+Erdős, P., Rényi, A.:
+On Random Graphs I.
+Publicationes Mathematicae, 6:290--297 (1959)
+
+\bibitem{bellman1958}
+Bellman, R.:
+On a Routing Problem.
+Quarterly of Applied Mathematics, 16(1):87--90 (1958)
+
+\bibitem{vinyals2015}
+Vinyals, O., Fortunato, M., Jaitly, N.:
+Pointer networks.
+Advances in Neural Information Processing Systems, 28 (2015)
+
+\bibitem{bello2016}
+Bello, I., Pham, H., Le, Q. V., Norouzi, M., Bengio, S.:
+Neural combinatorial optimization with reinforcement learning.
+arXiv preprint arXiv:1611.09940 (2016)
+
+\bibitem{dai2017}
+Dai, H., Khalil, E. B., Zhang, Y., Dilkina, B., Song, L.:
+Learning combinatorial optimization algorithms over graphs.
+Advances in Neural Information Processing Systems, 30 (2017)
+
+\bibitem{karalias2020}
+Karalias, K., Loukas, A.:
+Erdős goes neural: an unsupervised learning framework for combinatorial optimization on graphs.
+Advances in Neural Information Processing Systems, 33:3135--3145 (2020)
+
+\bibitem{kingma2014}
+Kingma, D. P., Ba, J.:
+Adam: A method for stochastic optimization.
+arXiv preprint arXiv:1412.6980 (2014)
 
 \end{thebibliography}
 
